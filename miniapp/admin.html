@@ -40,26 +40,44 @@ button,input,textarea{font:inherit;color:inherit}
 .switch.on{background:var(--green)}
 .switch:after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s ease}
 .switch.on:after{transform:translateX(18px)}
-.thread{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid var(--line)}
+.chat-search{width:100%;height:42px;border-radius:21px;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:0 16px;font-size:13.5px;margin:2px 0 8px;outline:0}
+.chat-search:focus{border-color:var(--accent)}
+.thread{display:flex;align-items:center;gap:11px;padding:11px 6px;border-radius:14px;cursor:pointer;transition:background .15s}
+.thread:active{background:var(--surface)}
 .thread .grow{flex:1;min-width:0}
-.thread b{font-size:14px}
-.thread small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(145deg,var(--accent),var(--accent2));display:grid;place-items:center;font-weight:800;color:#04101e;flex-shrink:0}
-#app.chat-open{display:flex;flex-direction:column;height:100dvh;padding-bottom:var(--safe-bottom)}
-#app.chat-open .chat-list{flex:1 1 auto;overflow-y:auto}
-.chat-list{display:flex;flex-direction:column;gap:8px;padding:6px 2px 14px;min-height:120px}
-.chat-bubble{max-width:78%;padding:10px 13px;border-radius:16px;background:var(--surface);border:1px solid var(--line);font-size:13.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 10px rgba(0,0,0,.18)}
-.chat-bubble.me{align-self:flex-end;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04101e;border:0;border-bottom-right-radius:4px}
-.chat-bubble:not(.me){border-bottom-left-radius:4px}
-.chat-bubble small{display:block;margin-top:5px;opacity:.6;font-size:10px;letter-spacing:.2px}
-.chat-bubble.me small{opacity:.55}
-.chat-compose{display:grid;grid-template-columns:1fr 46px;gap:8px;flex:0 0 auto;position:sticky;bottom:0;background:linear-gradient(180deg,transparent,var(--bg) 30%);padding:10px 0 2px}
-.chat-compose input{height:46px;border-radius:23px;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:0 16px;font-size:13.5px}
-.chat-compose input::placeholder{color:var(--muted)}
-.chat-compose input:focus{outline:0;border-color:var(--accent)}
-.chat-compose button{border:0;border-radius:50%;width:46px;height:46px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04101e;flex-shrink:0}
-.chat-compose button:disabled{opacity:.5}
-.chat-compose button svg{width:18px;height:18px}
+.thread .row{display:flex;align-items:baseline;gap:8px}
+.thread b{flex:1;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thread time{font-size:11px;color:var(--muted);flex-shrink:0}
+.thread small{display:block;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.thread small em{font-style:normal;color:var(--accent)}
+.thread.unread b,.thread.unread small{color:var(--text);font-weight:700}
+.thread .count{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--accent);color:#04101e;font-size:11px;font-weight:800;display:grid;place-items:center;flex-shrink:0}
+.avatar{width:46px;height:46px;border-radius:50%;background:linear-gradient(145deg,var(--accent),var(--accent2));display:grid;place-items:center;font-weight:800;font-size:17px;color:#04101e;flex-shrink:0}
+#app.chat-open{display:flex;flex-direction:column;height:100dvh;padding-bottom:calc(8px + var(--safe-bottom))}
+.chat-head{display:flex;align-items:center;gap:11px;padding:6px 0 11px;border-bottom:1px solid var(--line)}
+.chat-head .avatar{width:40px;height:40px;font-size:15px}
+.chat-head .grow{flex:1;min-width:0}.chat-head b{display:block;font-size:15.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.chat-head small{display:block;color:var(--muted);font-size:11.5px;margin-top:1px}
+.chat-head a{color:var(--accent);text-decoration:none}
+.chat-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:3px;padding:12px 2px 10px}
+.chat-day{align-self:center;margin:10px 0 7px;padding:4px 12px;border-radius:20px;background:rgba(255,255,255,.06);color:var(--muted);font-size:11px;font-weight:600}
+.msg{max-width:80%;padding:7px 11px 6px;border-radius:18px;font-size:14px;line-height:1.4;white-space:pre-wrap;word-break:break-word;animation:msgIn .22s ease-out}
+.msg.them{align-self:flex-start;background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:6px}
+.msg.me{align-self:flex-end;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-bottom-right-radius:6px}
+.msg.gap{margin-top:7px}
+.msg .meta{float:right;display:inline-flex;align-items:center;gap:3px;margin:7px 0 -3px 10px;font-size:10.5px;opacity:.65;white-space:nowrap}
+.msg .tick.read{color:#bfe3ff;opacity:1;font-weight:800}
+.msg.pending{opacity:.65}.msg.failed{background:#3a1715;color:#ffc0bb;cursor:pointer}
+.chat-note{align-self:center;margin:6px 0;padding:6px 12px;border-radius:12px;background:rgba(255,191,74,.1);color:var(--amber);font-size:11.5px;text-align:center}
+.chat-empty{margin:auto;text-align:center;color:var(--muted);padding:24px 18px;font-size:13px}
+.chat-quick{display:flex;gap:7px;overflow-x:auto;padding:4px 0 9px;scrollbar-width:none}.chat-quick::-webkit-scrollbar{display:none}
+.chat-quick button{flex:0 0 auto;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:16px;padding:8px 12px;font-size:12.5px}
+.chat-bar{display:flex;align-items:flex-end;gap:8px;padding-top:9px;border-top:1px solid var(--line)}
+.chat-bar textarea{flex:1;resize:none;height:44px;max-height:128px;border-radius:22px;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:11px 16px;font:inherit;font-size:14.5px;line-height:1.4;outline:0}
+.chat-bar textarea:focus{border-color:var(--accent)}
+.chat-bar button{width:44px;height:44px;flex:0 0 44px;border:0;border-radius:50%;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--accent),var(--accent2));transition:transform .15s,opacity .15s}
+.chat-bar button:disabled{opacity:.35}.chat-bar button:active{transform:scale(.92)}
+.chat-bar button svg{width:19px;height:19px}
+@keyframes msgIn{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
 .photo-thumb{width:100%;aspect-ratio:16/9;border-radius:12px;background:#0c1218 center/cover;border:1px solid var(--line);margin-bottom:8px;display:grid;place-items:center;color:var(--muted);overflow:hidden}
 .photo-thumb img{width:100%;height:100%;object-fit:cover}
 .back{border:0;background:var(--surface);border:1px solid var(--line);border-radius:11px;width:38px;height:38px;display:grid;place-items:center}
@@ -107,6 +125,10 @@ async function boot(){
   if(r.error){document.querySelector('#app').innerHTML=`<div class="empty"><b>Нет доступа</b><p>Откройте мини-апп из бота клуба, где у вас роль администратора.</p></div>`;return}
   state.club=r.club;state.role=r.role;state.counts=r.counts||{};
   renderTabs();
+  // Opened from "💬 Весь чат" under a client's message in the bot: straight
+  // into that thread.
+  const chatWith=params.get('chat');
+  if(chatWith&&/^[0-9a-f-]{36}$/i.test(chatWith)){state.tab='chat';return openThread(chatWith)}
   switchTab('home');
 }
 function renderTabs(){
@@ -122,7 +144,7 @@ function tabsHtml(){
     <button data-tab="settings" class="${state.tab==='settings'?'active':''}"><i data-lucide="settings"></i><span>Ещё</span></button>
   </div>`;
 }
-function switchTab(tab){state.tab=tab;stopChatPoll();document.querySelector('#app').classList.remove('chat-open');
+function switchTab(tab){state.tab=tab;state.activeCustomer=null;stopChatPoll();document.querySelector('#app').classList.remove('chat-open');
   if(tab==='home')renderHome();
   if(tab==='bookings')renderBookings();
   if(tab==='chat')renderThreads();
@@ -154,53 +176,134 @@ function paintBookings(){
 async function confirmBooking(id){const r=await api('booking_confirm',{id});if(r.ok){toast('Подтверждено');state.bookings=state.bookings.filter(b=>b.id!==id);state.counts.pendingBookings=state.bookings.length;paintBookings()}else toast('Не удалось')}
 async function cancelBookingAdmin(id){const r=await api('booking_cancel',{id});if(r.ok){toast('Отменено');state.bookings=state.bookings.filter(b=>b.id!==id);state.counts.pendingBookings=state.bookings.length;paintBookings()}else toast('Не удалось')}
 
+// Chat with clients: one thread per client, shared with the club bot (the
+// client may be writing from Telegram or the client Mini App). The thread
+// shell is painted once; polling only repaints the list, so the draft, focus
+// and keyboard survive every refresh.
+const QUICK_REPLIES=['Здравствуйте! Чем можем помочь?','Бронь подтверждена ✅ Ждём вас!','Стол свободен — приходите 🎱','К сожалению, сейчас всё занято 🙏','Спасибо! Ждём вас снова 💚'];
+const AVATAR_COLORS=[['#4c9eff','#2f7be0'],['#39efad','#12b981'],['#ffbf4a','#f59e0b'],['#c084fc','#9333ea'],['#ff8a80','#ef4444'],['#67e8f9','#0891b2']];
+function avatarStyle(seed){let h=0;for(const ch of String(seed||''))h=(h*31+ch.charCodeAt(0))>>>0;const [a,b]=AVATAR_COLORS[h%AVATAR_COLORS.length];return `background:linear-gradient(145deg,${a},${b})`}
+const initial=name=>escapeHtml((String(name||'?').trim()[0]||'?').toUpperCase());
+const chatTime=x=>new Intl.DateTimeFormat('ru-RU',{hour:'2-digit',minute:'2-digit'}).format(new Date(x));
+function chatDay(x){const d=new Date(x),today=new Date(),y=new Date();y.setDate(today.getDate()-1);if(d.toDateString()===today.toDateString())return 'Сегодня';if(d.toDateString()===y.toDateString())return 'Вчера';return new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'long'}).format(d)}
+function threadTime(x){if(!x)return '';const d=new Date(x),today=new Date();if(d.toDateString()===today.toDateString())return chatTime(x);const y=new Date();y.setDate(today.getDate()-1);if(d.toDateString()===y.toDateString())return 'вчера';return new Intl.DateTimeFormat('ru-RU',{day:'2-digit',month:'2-digit'}).format(d)}
+
 async function renderThreads(){
-  shell(`${topBar('Чат с клиентами')}<div class="skeleton"></div><div class="skeleton"></div>`);
+  shell(`${topBar('Чаты')}<div class="skeleton"></div><div class="skeleton"></div>`);
   const r=await api('chat_threads');
+  if(state.tab!=='chat')return;
   state.threads=r.threads||[];
-  document.querySelector('#app').innerHTML=`${topBar('Чат с клиентами')}${state.threads.length?`<div>${state.threads.map(th=>`<div class="thread" onclick="openThread('${th.customer_id}','${escapeHtml(th.full_name||'Клиент').replace(/'/g,"&#39;")}')"><div class="avatar">${escapeHtml((th.full_name||'?')[0])}</div><div class="grow"><b>${escapeHtml(th.full_name||'Клиент')}</b><small>${escapeHtml(th.last_body||'')}</small></div>${th.unread?`<span class="badge" style="position:static">${th.unread}</span>`:''}</div>`).join('')}</div>`:'<div class="empty">Сообщений пока нет</div>'}${tabsHtml()}`;
-  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));icons();
+  shell(`${topBar('Чаты')}<input id="threadSearch" class="chat-search" placeholder="Поиск по имени или телефону" value="${escapeHtml(state.threadQuery||'')}"><div id="threadList"></div>`);
+  const search=document.querySelector('#threadSearch');search.oninput=()=>{state.threadQuery=search.value;paintThreads()};
+  paintThreads();
+  stopChatPoll();state.chatPoll=setInterval(pollThreads,5000);
 }
-async function openThread(customerId,name){
-  state.activeCustomer={id:customerId,name};
+function paintThreads(){
+  const box=document.querySelector('#threadList');if(!box)return;
+  const q=(state.threadQuery||'').trim().toLowerCase();
+  const rows=state.threads.filter(th=>!q||String(th.full_name||'').toLowerCase().includes(q)||String(th.phone||'').replace(/\D/g,'').includes(q.replace(/\D/g,'')||'\u0000'));
+  box.innerHTML=rows.length?rows.map(th=>`<div class="thread ${th.unread?'unread':''}" onclick="openThread('${th.customer_id}')"><div class="avatar" style="${avatarStyle(th.customer_id)}">${initial(th.full_name)}</div><div class="grow"><div class="row"><b>${escapeHtml(th.full_name||'Клиент')}</b><time>${threadTime(th.last_at)}</time></div><div class="row"><small>${th.last_sender==='ADMIN'?'<em>Вы:</em> ':''}${escapeHtml(th.last_body||'')}</small>${th.unread?`<span class="count">${th.unread}</span>`:''}</div></div></div>`).join(''):`<div class="empty">${q?'Ничего не найдено':'Сообщений пока нет.<br><br>Клиенты пишут из приложения клуба или прямо в бот.'}</div>`;
+  const unread=state.threads.filter(th=>th.unread>0).length;
+  if(state.counts&&state.counts.unreadChats!==unread){state.counts.unreadChats=unread;const tab=document.querySelector('.tabs button[data-tab="chat"]');if(tab){tab.querySelector('.badge')?.remove();if(unread)tab.insertAdjacentHTML('beforeend',`<span class="badge">${unread}</span>`)}}
+}
+async function pollThreads(){
+  if(state.tab!=='chat'||state.activeCustomer||!document.querySelector('#threadList'))return;
+  if(document.hidden||state.chatBusy)return;state.chatBusy=true;
+  try{const r=await api('chat_threads');if(r.threads&&JSON.stringify(r.threads)!==JSON.stringify(state.threads)){state.threads=r.threads;paintThreads()}}finally{state.chatBusy=false}
+}
+
+async function openThread(customerId){
+  stopChatPoll();
+  const known=(state.threads||[]).find(th=>th.customer_id===customerId);
+  state.activeCustomer={id:customerId,name:known?.full_name||'Клиент',phone:known?.phone||'',hasTelegram:known?.has_telegram!==false};
+  state.tab='chat';
   const app=document.querySelector('#app');
   app.classList.add('chat-open');
-  app.innerHTML=`${topBar(name,"switchTab('chat')")}<div class="skeleton"></div>`;
+  app.innerHTML=`${threadHead()}<div class="skeleton" style="margin-top:12px"></div>`;icons();
   const r=await api('chat_thread',{customerId});
-  state.thread=r.messages||[];
-  paintThread();
-  stopChatPoll();state.chatPoll=setInterval(pollThread,3000);
+  if(r.error){toast('Чат не найден');state.activeCustomer=null;return switchTab('chat')}
+  if(r.customer)state.activeCustomer={...state.activeCustomer,name:r.customer.name||'Клиент',phone:r.customer.phone||'',hasTelegram:r.customer.hasTelegram};
+  state.thread=r.messages||[];state.threadSig=threadSig(state.thread);
+  const th=(state.threads||[]).find(x=>x.customer_id===customerId);if(th)th.unread=0;
+  paintThreadShell();
+  state.chatPoll=setInterval(pollThread,2500);
   window.visualViewport?.addEventListener('resize',onChatViewportResize);
+}
+function closeThread(){state.activeCustomer=null;switchTab('chat')}
+function threadHead(){
+  const c=state.activeCustomer||{};
+  const sub=[c.phone?`<a href="tel:${escapeHtml(c.phone)}">${escapeHtml(c.phone)}</a>`:'',c.hasTelegram===false?'нет Telegram — увидит в приложении':''].filter(Boolean).join(' · ')||'Клиент клуба';
+  return `<div class="chat-head"><button class="back" onclick="closeThread()"><i data-lucide="chevron-left"></i></button><div class="avatar" style="${avatarStyle(c.id)}">${initial(c.name)}</div><div class="grow"><b>${escapeHtml(c.name)}</b><small>${sub}</small></div>${c.phone?`<a class="back" href="tel:${escapeHtml(c.phone)}"><i data-lucide="phone"></i></a>`:''}</div>`;
 }
 // The keyboard shrinking the visual viewport doesn't fire any scroll event on
 // its own, so without this the newest message stayed hidden behind the
 // keyboard the moment the admin tapped the reply field.
-function onChatViewportResize(){const list=document.querySelector('#chatList');if(list)requestAnimationFrame(()=>list.scrollTo(0,list.scrollHeight))}
+function onChatViewportResize(){const list=document.querySelector('#chatScroll');if(list)requestAnimationFrame(()=>{list.scrollTop=list.scrollHeight})}
+const threadSig=msgs=>msgs.map(m=>m.id+(m.read_at?'r':'')).join(',');
 async function pollThread(){
-  if(!state.activeCustomer||!document.querySelector('#chatList'))return stopChatPoll();
-  const r=await api('chat_thread',{customerId:state.activeCustomer.id});
-  if(r.error)return;
-  const msgs=r.messages||[];
-  if(msgs.length!==(state.thread||[]).length){
-    const draft=document.querySelector('#chatInput')?.value||'';
-    state.thread=msgs;paintThread();
-    const input=document.querySelector('#chatInput');if(input&&draft)input.value=draft;
-  }
+  if(!state.activeCustomer||!document.querySelector('#chatScroll'))return stopChatPoll();
+  if(document.hidden||state.chatBusy)return;state.chatBusy=true;
+  try{
+    const id=state.activeCustomer.id;
+    const r=await api('chat_thread',{customerId:id});
+    if(r.error||!r.messages||state.activeCustomer?.id!==id)return;
+    const sig=threadSig(r.messages);if(sig===state.threadSig)return;
+    const known=new Set(r.messages.map(m=>m.id));
+    const before=(state.thread||[]).filter(m=>!m._local).length;
+    // keep local drafts and anything just sent that this (older) poll didn't see yet
+    const keep=(state.thread||[]).filter(m=>!known.has(m.id)&&(m._local||Date.now()-new Date(m.created_at).getTime()<20000));
+    const fresh=r.messages.length>before&&r.messages[r.messages.length-1]?.sender_type==='CLIENT';
+    state.thread=[...r.messages,...keep].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));state.threadSig=sig;
+    paintThreadMessages(fresh?'auto':'keep');
+    if(fresh)try{tg?.HapticFeedback?.impactOccurred('light')}catch(_){}
+  }finally{state.chatBusy=false}
 }
 function stopChatPoll(){if(state.chatPoll){clearInterval(state.chatPoll);state.chatPoll=null}window.visualViewport?.removeEventListener('resize',onChatViewportResize)}
-function paintThread(){
+function paintThreadShell(){
+  const app=document.querySelector('#app');
+  app.innerHTML=`${threadHead()}<div id="chatScroll" class="chat-scroll"></div><div class="chat-quick" id="chatQuick">${QUICK_REPLIES.map(q=>`<button onclick="sendReply(this.textContent)">${escapeHtml(q)}</button>`).join('')}</div><div class="chat-bar"><textarea id="chatInput" rows="1" placeholder="Ответ клиенту…" maxlength="1000"></textarea><button id="chatSend" onclick="sendReply()" disabled><i data-lucide="send-horizontal"></i></button></div>`;
+  icons();
+  const input=document.querySelector('#chatInput');
+  input.oninput=()=>{input.style.height='44px';input.style.height=Math.min(input.scrollHeight+2,128)+'px';const has=!!input.value.trim();document.querySelector('#chatSend').disabled=!has;document.querySelector('#chatQuick').style.display=has?'none':''};
+  input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendReply()}};
+  paintThreadMessages('bottom');
+}
+function paintThreadMessages(scroll='keep'){
+  const list=document.querySelector('#chatScroll');if(!list)return;
+  const nearBottom=list.scrollHeight-list.scrollTop-list.clientHeight<90;
   const msgs=state.thread||[];
-  document.querySelector('#app').innerHTML=`${topBar(state.activeCustomer.name,"switchTab('chat')")}<div id="chatList" class="chat-list">${msgs.length?msgs.map(m=>`<div class="chat-bubble ${m.sender_type==='ADMIN'?'me':''}">${escapeHtml(m.body)}<small>${new Intl.DateTimeFormat('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(m.created_at))}</small></div>`).join(''):'<div class="empty">Начните диалог</div>'}</div><div class="chat-compose"><input id="chatInput" placeholder="Ответ клиенту…" maxlength="1000"><button onclick="sendReply()"><i data-lucide="send"></i></button></div>`;
-  icons();const list=document.querySelector('#chatList');if(list)requestAnimationFrame(()=>list.scrollTo(0,list.scrollHeight));
-  const input=document.querySelector('#chatInput');if(input){input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();sendReply()}};if(document.activeElement!==input)input.focus()}
+  if(!msgs.length){list.innerHTML='<div class="chat-empty">💬<br><br>Начните диалог — клиент получит сообщение в Telegram и сможет ответить прямо там.</div>';return}
+  let html=state.activeCustomer?.hasTelegram===false?'<div class="chat-note">У клиента нет Telegram — ответы увидит в приложении клуба</div>':'',lastDay='',prev=null;
+  for(const m of msgs){
+    const day=chatDay(m.created_at);
+    if(day!==lastDay){html+=`<div class="chat-day">${day}</div>`;lastDay=day;prev=null}
+    const mine=m.sender_type==='ADMIN';
+    const gap=prev&&prev.sender_type!==m.sender_type?' gap':'';
+    const tick=mine?(m._failed?'!':m._local?'<span class="tick">◷</span>':`<span class="tick ${m.read_at?'read':''}">${m.read_at?'✓✓':'✓'}</span>`):'';
+    html+=`<div class="msg ${mine?'me':'them'}${gap}${m._local&&!m._failed?' pending':''}${m._failed?' failed':''}" ${m._failed?`onclick="retryReply('${m.id}')" title="Не отправлено — нажмите, чтобы повторить"`:''}>${escapeHtml(m.body)}<span class="meta">${chatTime(m.created_at)} ${tick}</span></div>`;
+    prev=m;
+  }
+  list.innerHTML=html;
+  if(scroll==='bottom'||nearBottom)requestAnimationFrame(()=>{list.scrollTop=list.scrollHeight});
 }
-async function sendReply(){
-  const input=document.querySelector('#chatInput');const message=(input?.value||'').trim();if(!message)return;
-  input.value='';input.disabled=true;
-  const r=await api('chat_reply',{customerId:state.activeCustomer.id,message});
-  input.disabled=false;
-  if(r.ok&&r.message){state.thread=[...(state.thread||[]),r.message];paintThread()}else{toast('Не удалось отправить');input.value=message}
+async function sendReply(text){
+  const input=document.querySelector('#chatInput');
+  const message=String(text??input?.value??'').trim().slice(0,1000);if(!message||!state.activeCustomer)return;
+  if(text===undefined&&input){input.value='';input.oninput();input.focus()}
+  try{tg?.HapticFeedback?.impactOccurred('light')}catch(_){}
+  const local={id:'local-'+Date.now(),sender_type:'ADMIN',body:message,created_at:new Date().toISOString(),_local:true};
+  state.thread=[...(state.thread||[]),local];paintThreadMessages('bottom');
+  await deliverReply(local,state.activeCustomer.id);
 }
+async function deliverReply(local,customerId){
+  const r=await api('chat_reply',{customerId,message:local.body});
+  if(state.activeCustomer?.id!==customerId)return;
+  const i=(state.thread||[]).findIndex(m=>m.id===local.id);if(i<0)return;
+  if(r.ok&&r.message){state.thread[i]=r.message;state.threadSig=threadSig(state.thread.filter(m=>!m._local))}
+  else{state.thread[i]={...local,_failed:true};toast('Не удалось отправить — нажмите на сообщение, чтобы повторить')}
+  paintThreadMessages('keep');
+}
+function retryReply(id){const m=(state.thread||[]).find(x=>x.id===id);if(!m||!state.activeCustomer)return;m._failed=false;paintThreadMessages('keep');deliverReply(m,state.activeCustomer.id)}
 
 async function renderPromos(){
   shell(`${topBar('Акции')}<div class="skeleton"></div>`);

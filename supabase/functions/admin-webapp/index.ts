@@ -53,14 +53,20 @@ async function verifyInitData(initData: string, botToken: string): Promise<{ tgI
   }
 }
 
-async function sendTelegram(token: string, chatId: number, text: string) {
+async function sendTelegram(token: string, chatId: number, text: string, extra: Record<string, unknown> = {}): Promise<boolean> {
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", ...extra }),
     });
-  } catch (_) { /* a failed push must not fail the admin action */ }
+    return res.ok;
+  } catch (_) {
+    return false; /* a failed push must not fail the admin action */
+  }
 }
+
+const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const CLIENT_APP_URL = "https://velora-club-miniapp-production.up.railway.app/";
 
 function dayLabel(iso: string, zone: string) {
   return new Intl.DateTimeFormat("ru-RU", { timeZone: zone, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
@@ -176,30 +182,67 @@ Deno.serve(async (req: Request) => {
 
     if (action === "chat_thread") {
       const customerId = String(payload.customerId ?? "");
-      const { data, error } = await client.from("customer_chat_messages")
-        .select("id,sender_type,body,created_at")
-        .eq("club_id", clubId).eq("customer_id", customerId)
-        .order("created_at", { ascending: true }).limit(200);
+      // Newest 200, oldest first -- ascending with a limit froze long
+      // threads at their first messages.
+      const [{ data, error }, { data: customer }] = await Promise.all([
+        client.from("customer_chat_messages")
+          .select("id,sender_type,body,read_at,created_at")
+          .eq("club_id", clubId).eq("customer_id", customerId)
+          .order("created_at", { ascending: false }).limit(200),
+        client.from("customers").select("id,full_name,phone,telegram_id")
+          .eq("id", customerId).eq("club_id", clubId).maybeSingle(),
+      ]);
       if (error) throw error;
-      await client.from("customer_chat_messages").update({ read_at: new Date().toISOString() })
-        .eq("club_id", clubId).eq("customer_id", customerId).eq("sender_type", "CLIENT").is("read_at", null);
-      return json({ messages: data ?? [] });
+      if (!customer) return json({ error: "NOT_FOUND" }, 404);
+      const messages = (data ?? []).reverse();
+      if (messages.some((m: any) => m.sender_type === "CLIENT" && !m.read_at)) {
+        await client.from("customer_chat_messages").update({ read_at: new Date().toISOString() })
+          .eq("club_id", clubId).eq("customer_id", customerId).eq("sender_type", "CLIENT").is("read_at", null);
+      }
+      return json({
+        messages,
+        customer: { id: customer.id, name: customer.full_name, phone: customer.phone, hasTelegram: Boolean(customer.telegram_id) },
+      });
     }
 
     if (action === "chat_reply") {
       const customerId = String(payload.customerId ?? "");
       const message = String(payload.message ?? "").trim();
       if (!message || message.length > 1000) return json({ error: "BAD_MESSAGE" }, 400);
+      // Scoped to this club: the id comes from the page, and an admin must
+      // never be able to message another club's customer.
+      const { data: customer } = await client.from("customers").select("telegram_id")
+        .eq("id", customerId).eq("club_id", clubId).maybeSingle();
+      if (!customer) return json({ error: "NOT_FOUND" }, 404);
       const { data: created, error } = await client.from("customer_chat_messages").insert({
         club_id: clubId, customer_id: customerId, sender_type: "ADMIN",
         sender_telegram_id: verified.tgId, body: message,
-      }).select("id,sender_type,body,created_at").single();
+      }).select("id,sender_type,body,read_at,created_at").single();
       if (error) throw error;
-      const { data: customer } = await client.from("customers").select("telegram_id").eq("id", customerId).maybeSingle();
-      if (customer?.telegram_id) {
-        EdgeRuntime.waitUntil(sendTelegram(clubConfig.bot_token, Number(customer.telegram_id), `💬 <b>Ответ клуба</b>\n\n${message}`));
+      // Answering means the client's messages have been seen.
+      EdgeRuntime.waitUntil((async () => {
+        await client.from("customer_chat_messages").update({ read_at: new Date().toISOString() })
+          .eq("club_id", clubId).eq("customer_id", customerId).eq("sender_type", "CLIENT").is("read_at", null);
+      })());
+      if (customer.telegram_id) {
+        // Same push as club-bot-service postAdminMessage: the client answers
+        // right in Telegram, or opens the whole thread in the Mini App.
+        // In the background, so the admin's bubble lands at once.
+        const tgId = Number(customer.telegram_id);
+        EdgeRuntime.waitUntil((async () => {
+          const { data: state } = await client.from("bot_state").select("language").eq("telegram_id", tgId).maybeSingle();
+          const uz = state?.language !== "ru";
+          await sendTelegram(clubConfig.bot_token, tgId, `💬 <b>${esc(clubConfig.club_name)}</b>\n\n${esc(message)}`, {
+            reply_markup: {
+              inline_keyboard: [[
+                { text: uz ? "↩️ Javob berish" : "↩️ Ответить", callback_data: "chatc" },
+                { text: uz ? "💬 Chatni ochish" : "💬 Открыть чат", web_app: { url: `${CLIENT_APP_URL}?c=${encodeURIComponent(clubId)}&chat=1` } },
+              ]],
+            },
+          });
+        })());
       }
-      return json({ ok: true, message: created });
+      return json({ ok: true, message: created, delivered: Boolean(customer.telegram_id) });
     }
 
     if (action === "promotions_list") {
