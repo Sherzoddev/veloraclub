@@ -1045,6 +1045,7 @@ async function reservationContext(sb: SupabaseClient, clubId: string, reservatio
     startsAt: r.starts_at as string,
     customerName: r.customer_name as string | null,
     resourceName: (res?.name as string | undefined) ?? "Стол",
+    customerId: (r.customer_id as string | null) ?? null,
     customerTgId,
   };
 }
@@ -1130,6 +1131,112 @@ async function finishBooking(
   ));
 }
 
+// --- Club ↔ client chat -------------------------------------------------------
+// One thread per client in customer_chat_messages, whichever side and channel
+// a message comes from (this bot, the client Mini App, the admin Mini App), so
+// the Mini App always shows the whole conversation. Every message is pushed
+// to the other side with buttons to answer right here in Telegram; a plain
+// Telegram "reply" (swipe) to such a push is taken as an answer too.
+
+const CHAT_MAX = 1000; // customer_chat_messages.body check constraint
+const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+const chatClientMarkup = (clubId: string, lang: Lang) => ({
+  inline_keyboard: [[
+    { text: L(lang, "↩️ Ответить", "↩️ Javob berish"), callback_data: "chatc" },
+    { text: L(lang, "💬 Открыть чат", "💬 Chatni ochish"), web_app: { url: `${MINI_APP_URL}?c=${encodeURIComponent(clubId)}&chat=1` } },
+  ]],
+});
+
+const chatAdminMarkup = (clubId: string, customerId: string) => ({
+  inline_keyboard: [[
+    { text: "↩️ Ответить", callback_data: `chatreply:${customerId}` },
+    { text: "💬 Весь чат", web_app: { url: `${ADMIN_APP_URL}?c=${encodeURIComponent(clubId)}&chat=${customerId}` } },
+  ]],
+});
+
+type ChatCustomer = { id: string; full_name: string | null; phone: string | null; telegram_id: number | null };
+
+async function chatCustomerByTg(sb: SupabaseClient, clubId: string, tgId: number): Promise<ChatCustomer | null> {
+  const { data } = await sb.from("customers").select("id, full_name, phone, telegram_id")
+    .eq("club_id", clubId).eq("telegram_id", tgId).maybeSingle();
+  return (data as ChatCustomer | null) ?? null;
+}
+
+async function chatCustomerById(sb: SupabaseClient, clubId: string, id: string): Promise<ChatCustomer | null> {
+  const { data } = await sb.from("customers").select("id, full_name, phone, telegram_id")
+    .eq("club_id", clubId).eq("id", id).maybeSingle();
+  return (data as ChatCustomer | null) ?? null;
+}
+
+async function postClientMessage(
+  sb: SupabaseClient, club: Club, token: string, customer: ChatCustomer, tgId: number, text: string,
+  reservationId: string | null = null, context = "",
+): Promise<boolean> {
+  const body = text.slice(0, CHAT_MAX);
+  const { error } = await sb.from("customer_chat_messages").insert({
+    club_id: club.club_id, customer_id: customer.id, reservation_id: reservationId,
+    sender_type: "CLIENT", sender_telegram_id: tgId, body,
+  });
+  if (error) {
+    console.error("postClientMessage", error);
+    return false;
+  }
+  // Answering means the club's messages have been seen.
+  void sb.from("customer_chat_messages").update({ read_at: new Date().toISOString() })
+    .eq("club_id", club.club_id).eq("customer_id", customer.id).eq("sender_type", "ADMIN").is("read_at", null)
+    .then(({ error: e }) => e && console.error("chat read", e));
+  const { data: admins } = await sb.rpc("bot_admin_chats", { p_club_id: club.club_id });
+  const head = `💬 <b>${esc(customer.full_name ?? "Клиент")}</b>${customer.phone ? ` · ${esc(customer.phone)}` : ""}`;
+  await Promise.all(((admins ?? []) as number[]).map((admin) =>
+    send(token, admin, `${head}\n${context ? `<i>${esc(context)}</i>\n` : ""}\n${esc(body)}`, {
+      reply_markup: chatAdminMarkup(club.club_id, customer.id),
+    })
+  ));
+  return true;
+}
+
+async function postAdminMessage(
+  sb: SupabaseClient, club: Club, token: string, customer: ChatCustomer, adminTgId: number, text: string,
+  reservationId: string | null = null, context = "",
+): Promise<{ ok: boolean; delivered: boolean }> {
+  const body = text.slice(0, CHAT_MAX);
+  const { error } = await sb.from("customer_chat_messages").insert({
+    club_id: club.club_id, customer_id: customer.id, reservation_id: reservationId,
+    sender_type: "ADMIN", sender_telegram_id: adminTgId, body,
+  });
+  if (error) {
+    console.error("postAdminMessage", error);
+    return { ok: false, delivered: false };
+  }
+  void sb.from("customer_chat_messages").update({ read_at: new Date().toISOString() })
+    .eq("club_id", club.club_id).eq("customer_id", customer.id).eq("sender_type", "CLIENT").is("read_at", null)
+    .then(({ error: e }) => e && console.error("chat read", e));
+  if (!customer.telegram_id) return { ok: true, delivered: false };
+  const lang = await getLang(sb, Number(customer.telegram_id));
+  const res = await send(
+    token, Number(customer.telegram_id),
+    `💬 <b>${esc(club.club_name)}</b>\n${context ? `<i>${esc(context)}</i>\n` : ""}\n${esc(body)}`,
+    { reply_markup: chatClientMarkup(club.club_id, lang) },
+  );
+  return { ok: true, delivered: res.ok };
+}
+
+// A Telegram "reply" to one of our chat pushes: the push's own buttons say
+// which thread it belongs to (Telegram echoes reply_markup in
+// reply_to_message).
+function chatTargetOfReply(replyTo: any): { kind: "client" } | { kind: "admin"; customerId: string } | null {
+  const rows = (replyTo?.reply_markup?.inline_keyboard ?? []) as Array<Array<{ callback_data?: string }>>;
+  for (const row of rows) {
+    for (const button of row) {
+      const data = String(button.callback_data ?? "");
+      if (data === "chatc") return { kind: "client" };
+      if (data.startsWith("chatreply:")) return { kind: "admin", customerId: data.slice(10) };
+    }
+  }
+  return null;
+}
+
 async function showMenu(
   sb: SupabaseClient, club: Club, token: string, chatId: number, role: string, lang: Lang, firstName: string,
 ) {
@@ -1171,7 +1278,7 @@ async function showMenu(
 
 async function handleText(
   sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, role: string, text: string,
-  lang: Lang, firstName: string,
+  lang: Lang, firstName: string, replyTo: any = null, isEdit = false,
 ) {
   if (text.startsWith("/start") || text === "/menu") {
     // Clearing pending state doesn't affect the menu reply -- run it
@@ -1192,6 +1299,20 @@ async function handleText(
     }
     await Promise.all([cleared, showMenu(sb, club, token, chatId, role, lang, firstName)]);
     return;
+  }
+
+  // An edited message was already handled (and, in the chat, already sent)
+  // in its original form -- never send it a second time.
+  if (isEdit) return;
+
+  const replyTarget = chatTargetOfReply(replyTo);
+  if (replyTarget?.kind === "admin" && role === "ADMIN") {
+    const customer = await chatCustomerById(sb, club.club_id, replyTarget.customerId);
+    if (customer) return void adminChatSend(sb, club, token, chatId, tgId, customer, text);
+  }
+  if (replyTarget?.kind === "client") {
+    const customer = await chatCustomerByTg(sb, club.club_id, tgId);
+    if (customer) return void clientChatSend(sb, club, token, chatId, tgId, customer, text, lang);
   }
 
   if (role === "ADMIN") {
@@ -1268,66 +1389,37 @@ async function handleText(
     return;
   }
 
-  if (pending?.action === "relay_admin") {
-    const ctx = await reservationContext(sb, club.club_id, pending.payload.reservation_id);
+  // relay_admin / relay_client are the older per-booking message buttons
+  // (radm:/rcli:) -- they now go through the same chat thread, with the
+  // booking as context, so the Mini App shows them too.
+  if (pending?.action === "relay_admin" || pending?.action === "chat_client") {
     await setPending(sb, club.club_id, tgId, null);
-    if (!ctx) {
-      await send(token, chatId, L(lang, "Эта бронь не найдена.", "Bu bron topilmadi."), { reply_markup: clientKeyboardFor(lang) });
+    const customer = await chatCustomerByTg(sb, club.club_id, tgId);
+    if (!customer) {
+      await send(token, chatId, L(lang,
+        "Чтобы написать клубу, сначала отправьте свой номер.",
+        "Klubga yozish uchun avval raqamingizni yuboring."), { reply_markup: contactKeyboardFor(lang) });
       return;
     }
-    const { data: chats } = await sb.rpc("bot_admin_chats", { p_club_id: club.club_id });
-    await Promise.all(((chats ?? []) as number[]).map((admin) =>
-      send(
-        token, admin,
-        `<b>Сообщение от клиента</b>\n${ctx.customerName ?? "Гость"} · ${ctx.resourceName} · ${dayLabel(ctx.startsAt, club.timezone)}\n\n${text}`,
-        { reply_markup: { inline_keyboard: [[{ text: "✉ Ответить", callback_data: `rcli:${ctx.id}` }]] } },
-      )
-    ));
-    await send(token, chatId, L(lang, "Отправлено администратору.", "Administratorga yuborildi."), { reply_markup: clientKeyboardFor(lang) });
+    const ctx = pending.action === "relay_admin"
+      ? await reservationContext(sb, club.club_id, String(pending.payload?.reservation_id ?? ""))
+      : null;
+    await clientChatSend(sb, club, token, chatId, tgId, customer, text, lang, ctx);
     return;
   }
 
-  if (pending?.action === "relay_client") {
-    const ctx = await reservationContext(sb, club.club_id, pending.payload.reservation_id);
+  if (pending?.action === "relay_client" || pending?.action === "chat_reply") {
     await setPending(sb, club.club_id, tgId, null);
-    if (!ctx?.customerTgId) {
-      await send(token, chatId, "У клиента нет чата с этим ботом.", { reply_markup: adminKeyboard });
-      return;
-    }
-    await send(
-      token, ctx.customerTgId,
-      `<b>Сообщение от клуба</b>\n${ctx.resourceName} · ${dayLabel(ctx.startsAt, club.timezone)}\n\n${text}`,
-        { reply_markup: { inline_keyboard: [[{ text: "✉ Ответить", callback_data: `radm:${ctx.id}` }]] } },
-      );
-      await send(token, chatId, "Отправлено клиенту.", { reply_markup: adminKeyboard });
-      return;
-    }
-
-  if (pending?.action === "chat_reply") {
-    await setPending(sb, club.club_id, tgId, null);
-    const customerId = String(pending.payload?.customer_id ?? "");
-    const { data: customer } = await sb.from("customers").select("telegram_id, full_name")
-      .eq("id", customerId).eq("club_id", club.club_id).maybeSingle();
+    const ctx = pending.action === "relay_client"
+      ? await reservationContext(sb, club.club_id, String(pending.payload?.reservation_id ?? ""))
+      : null;
+    const customerId = ctx?.customerId ?? String(pending.payload?.customer_id ?? "");
+    const customer = customerId ? await chatCustomerById(sb, club.club_id, customerId) : null;
     if (!customer) {
       await send(token, chatId, "Клиент не найден.", { reply_markup: adminKeyboard });
       return;
     }
-    const { error } = await sb.from("customer_chat_messages").insert({
-      club_id: club.club_id, customer_id: customerId, sender_type: "ADMIN",
-      sender_telegram_id: tgId, body: text,
-    });
-    if (error) {
-      await send(token, chatId, `Не удалось отправить: ${error.message}`, { reply_markup: adminKeyboard });
-      return;
-    }
-    if (customer.telegram_id) {
-      await send(token, Number(customer.telegram_id), `💬 <b>Ответ клуба</b>\n\n${text}`);
-    }
-    await send(
-      token, chatId,
-      `Отправлено${customer.full_name ? ` — ${customer.full_name}` : ""}.`,
-      { reply_markup: adminKeyboard },
-    );
+    await adminChatSend(sb, club, token, chatId, tgId, customer, text, ctx);
     return;
   }
 
@@ -1344,7 +1436,43 @@ async function handleText(
     }
   }
 
+  // Anything else a client types is a message to the club -- the natural
+  // thing to do in a chat -- rather than bouncing them back to the menu.
+  if (role !== "ADMIN" && !text.startsWith("/")) {
+    const customer = await chatCustomerByTg(sb, club.club_id, tgId);
+    if (customer) return void clientChatSend(sb, club, token, chatId, tgId, customer, text, lang);
+  }
+
   await showMenu(sb, club, token, chatId, role, lang, firstName);
+}
+
+type ReservationCtx = NonNullable<Awaited<ReturnType<typeof reservationContext>>>;
+
+async function clientChatSend(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, customer: ChatCustomer,
+  text: string, lang: Lang, ctx: ReservationCtx | null = null,
+) {
+  const context = ctx ? `Бронь: ${ctx.resourceName} · ${dayLabel(ctx.startsAt, club.timezone)}` : "";
+  const ok = await postClientMessage(sb, club, token, customer, tgId, text, ctx?.id ?? null, context);
+  await send(token, chatId, ok
+    ? L(lang, "✅ Отправлено в клуб — ответ придёт сюда.", "✅ Klubga yuborildi — javob shu yerga keladi.")
+    : L(lang, "⚠️ Не удалось отправить, попробуйте ещё раз.", "⚠️ Yuborib bo'lmadi, qayta urinib ko'ring."),
+  { reply_markup: clientKeyboardFor(lang, club.club_id) });
+}
+
+async function adminChatSend(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, customer: ChatCustomer,
+  text: string, ctx: ReservationCtx | null = null,
+) {
+  const context = ctx ? `Бронь: ${ctx.resourceName} · ${dayLabel(ctx.startsAt, club.timezone)}` : "";
+  const result = await postAdminMessage(sb, club, token, customer, tgId, text, ctx?.id ?? null, context);
+  const who = customer.full_name ? ` — ${esc(customer.full_name)}` : "";
+  const reply = !result.ok
+    ? "⚠️ Не удалось отправить, попробуйте ещё раз."
+    : result.delivered
+      ? `✅ Отправлено${who}.`
+      : `✅ Сохранено в чате${who}. У клиента нет Telegram — увидит в приложении.`;
+  await send(token, chatId, reply, { reply_markup: adminKeyboard });
 }
 
 // --- HTTP wiring -------------------------------------------------------------
@@ -1662,9 +1790,34 @@ app.post("/club-bot", async (req, res) => {
       }
 
       if (userRole === "ADMIN" && data.startsWith("chatreply:")) {
-        const customerId = data.slice(10);
-        await setPending(sb, c.club_id, tgId, "chat_reply", { customer_id: customerId });
-        await send(token, chatId, "Напишите ответ клиенту.", { reply_markup: adminKeyboard });
+        const customer = await chatCustomerById(sb, c.club_id, data.slice(10));
+        if (!customer) {
+          await send(token, chatId, "Клиент не найден.", { reply_markup: adminKeyboard });
+          return res.send("ok");
+        }
+        await setPending(sb, c.club_id, tgId, "chat_reply", { customer_id: customer.id });
+        await send(
+          token, chatId,
+          `✍️ Ответ для <b>${esc(customer.full_name ?? "клиента")}</b> — напишите сообщение.`,
+          { reply_markup: { force_reply: true, input_field_placeholder: "Ответ клиенту…" } },
+        );
+        return res.send("ok");
+      }
+
+      if (data === "chatc") {
+        const customer = await chatCustomerByTg(sb, c.club_id, tgId);
+        if (!customer) {
+          await send(token, chatId, L(lang,
+            "Чтобы написать клубу, сначала отправьте свой номер.",
+            "Klubga yozish uchun avval raqamingizni yuboring."), { reply_markup: contactKeyboardFor(lang) });
+          return res.send("ok");
+        }
+        await setPending(sb, c.club_id, tgId, "chat_client");
+        await send(
+          token, chatId,
+          L(lang, "✍️ Напишите сообщение клубу.", "✍️ Klubga xabar yozing."),
+          { reply_markup: { force_reply: true, input_field_placeholder: L(lang, "Сообщение…", "Xabar…") } },
+        );
         return res.send("ok");
       }
 
@@ -1674,12 +1827,16 @@ app.post("/club-bot", async (req, res) => {
           await send(token, chatId, "Эта бронь не найдена.", { reply_markup: adminKeyboard });
           return res.send("ok");
         }
-        if (!ctx.customerTgId) {
-          await send(token, chatId, "У клиента нет чата с этим ботом.", { reply_markup: adminKeyboard });
+        if (!ctx.customerId) {
+          await send(token, chatId, "Бронь без клубной карты — написать клиенту нельзя.", { reply_markup: adminKeyboard });
           return res.send("ok");
         }
         await setPending(sb, c.club_id, tgId, "relay_client", { reservation_id: ctx.id });
-        await send(token, chatId, "Напишите сообщение — отправим клиенту.", { reply_markup: adminKeyboard });
+        await send(
+          token, chatId,
+          `✍️ Сообщение для ${esc(ctx.customerName ?? "клиента")} · ${esc(ctx.resourceName)} — напишите текст.`,
+          { reply_markup: { force_reply: true, input_field_placeholder: "Сообщение клиенту…" } },
+        );
         return res.send("ok");
       }
 
@@ -1687,7 +1844,12 @@ app.post("/club-bot", async (req, res) => {
     }
 
     const text = String(msg?.text ?? "").trim();
-    if (text) await handleText(sb, c, token, chatId, tgId, userRole, text, lang, firstName);
+    if (text) {
+      await handleText(
+        sb, c, token, chatId, tgId, userRole, text, lang, firstName,
+        msg?.reply_to_message ?? null, Boolean(update.edited_message),
+      );
+    }
   } catch (e) {
     console.error(e);
   }

@@ -8,6 +8,8 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // depending on a bundled HTML file, whose absence would crash the whole
 // module at cold start and take POST down with it.
 const MINI_APP_URL = "https://velora-club-miniapp-production.up.railway.app/";
+const ADMIN_APP_URL = "https://velora-club-miniapp-production.up.railway.app/admin";
+const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const db = (): SupabaseClient => createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 const client = db();
 const clubCache = new Map<string, { value: any; expiresAt: number }>();
@@ -142,9 +144,9 @@ Deno.serve(async (req: Request) => {
     };
 
     if (action === "bootstrap" || action === "me") {
-      const [card, clubResult, botResult, shiftResult, tiersResult, termsResult] = await Promise.all([
+      const [card, clubResult, botResult, shiftResult, tiersResult, termsResult, unreadResult] = await Promise.all([
         playerCard(),
-        client.from("clubs").select("id,name,phone,address,bot_welcome_photo_url,timezone").eq("id", clubId).single(),
+        client.from("clubs").select("id,name,phone,address,latitude,longitude,bot_welcome_photo_url,timezone").eq("id", clubId).single(),
         client.from("club_bots").select("bot_username").eq("club_id", clubId).eq("active", true).limit(1).maybeSingle(),
         // Not cached alongside clubConfig — a closed shift must stop showing
         // the club as open right away, not up to 60s later.
@@ -158,6 +160,13 @@ Deno.serve(async (req: Request) => {
           ? client.from("club_bot_users").select("terms_accepted_at")
               .eq("club_id", clubId).eq("telegram_id", verified.tgId).maybeSingle()
           : Promise.resolve({ data: null }),
+        // Unread club replies for the chat badge -- joined through customers
+        // so it runs alongside bot_player_card instead of after it.
+        verified
+          ? client.from("customer_chat_messages").select("id, customers!inner(telegram_id)", { count: "exact", head: true })
+              .eq("club_id", clubId).eq("sender_type", "ADMIN").is("read_at", null)
+              .eq("customers.telegram_id", verified.tgId)
+          : Promise.resolve({ count: 0 }),
       ]);
       const lateUntilActive = clubConfig.late_until && new Date(clubConfig.late_until).getTime() > Date.now();
       // bot_player_card now returns the active reservation inline (see
@@ -173,6 +182,8 @@ Deno.serve(async (req: Request) => {
           name: clubResult.data?.name ?? clubConfig.club_name,
           phone: clubResult.data?.phone,
           address: clubResult.data?.address,
+          lat: clubResult.data?.latitude ?? null,
+          lng: clubResult.data?.longitude ?? null,
           photo: clubResult.data?.bot_welcome_photo_url,
           hours: clubConfig.work_hours_text || "10:00 — 02:00",
           botUsername: botResult.data?.bot_username,
@@ -186,6 +197,7 @@ Deno.serve(async (req: Request) => {
         activeReservation,
         levelUp,
         termsAccepted: Boolean(termsResult.data?.terms_accepted_at),
+        unreadChat: (unreadResult as { count?: number | null }).count ?? 0,
       });
     }
 
@@ -328,15 +340,20 @@ Deno.serve(async (req: Request) => {
     if (action === "chat_messages") {
       const card = await playerCard();
       if (!card) return json({ error: "CONTACT_REQUIRED" }, 409);
+      // Newest 200, oldest first -- ordering ascending with a limit froze the
+      // thread at its first messages once it grew past the limit.
       const { data, error } = await client.from("customer_chat_messages")
         .select("id,sender_type,body,read_at,created_at")
         .eq("club_id", clubId).eq("customer_id", card.id)
-        .order("created_at", { ascending: true }).limit(100);
+        .order("created_at", { ascending: false }).limit(200);
       if (error) throw error;
-      await client.from("customer_chat_messages").update({ read_at: new Date().toISOString() })
-        .eq("club_id", clubId).eq("customer_id", card.id)
-        .eq("sender_type", "ADMIN").is("read_at", null);
-      return json({ messages: data ?? [] });
+      const messages = (data ?? []).reverse();
+      if (messages.some((m: any) => m.sender_type === "ADMIN" && !m.read_at)) {
+        await client.from("customer_chat_messages").update({ read_at: new Date().toISOString() })
+          .eq("club_id", clubId).eq("customer_id", card.id)
+          .eq("sender_type", "ADMIN").is("read_at", null);
+      }
+      return json({ messages });
     }
 
     if (action === "send_chat_message") {
@@ -349,13 +366,21 @@ Deno.serve(async (req: Request) => {
         sender_telegram_id: tgId, body: message,
       }).select("id,sender_type,body,read_at,created_at").single();
       if (error) throw error;
+      // Same push and buttons as a message typed in the bot itself
+      // (club-bot-service postClientMessage): answer right in Telegram, or
+      // open the whole thread in the admin Mini App.
       const { data: admins } = await client.rpc("bot_admin_chats", { p_club_id: clubId });
+      const head = `💬 <b>${esc(card.name ?? firstName)}</b>${card.phone ? ` · ${esc(card.phone)}` : ""}`;
       for (const admin of (admins ?? []) as number[]) {
-        EdgeRuntime.waitUntil(sendTelegram(
-          clubConfig.bot_token, admin,
-          `💬 Сообщение из Mini App\n${card.name ?? firstName}\n\n${message}`,
-          { reply_markup: { inline_keyboard: [[{ text: "✉ Ответить", callback_data: `chatreply:${card.id}` }]] } },
-        ));
+        EdgeRuntime.waitUntil(sendTelegram(clubConfig.bot_token, admin, `${head}\n\n${esc(message)}`, {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [[
+              { text: "↩️ Ответить", callback_data: `chatreply:${card.id}` },
+              { text: "💬 Весь чат", web_app: { url: `${ADMIN_APP_URL}?c=${encodeURIComponent(clubId)}&chat=${card.id}` } },
+            ]],
+          },
+        }));
       }
       return json({ ok: true, message: created });
     }
