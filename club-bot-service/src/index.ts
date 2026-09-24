@@ -534,10 +534,11 @@ async function adminStats(sb: SupabaseClient, club: Club, token: string, chatId:
 }
 
 async function showReportMenu(token: string, chatId: number) {
-  await send(token, chatId, "📈 <b>Отчёты</b>\n\nВыберите период или раздел.", {
+  await send(token, chatId, "📈 <b>Отчёты</b>\n\nОтчёт считается за смену — от открытия до закрытия кассы.", {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "Сегодня", callback_data: "rep:today" }, { text: "Вчера", callback_data: "rep:yesterday" }],
+        [{ text: "Текущая смена", callback_data: "rep:cur" }, { text: "Прошлая смена", callback_data: "rep:prev" }],
+        [{ text: "📋 Последние смены", callback_data: "rep:list" }],
         [{ text: "🗓 Выбрать день", callback_data: "rep:cal" }],
         [{ text: "Топ товаров", callback_data: "rep:topprod" }],
       ],
@@ -545,14 +546,65 @@ async function showReportMenu(token: string, chatId: number) {
   });
 }
 
-async function showDayReport(
-  sb: SupabaseClient, club: Club, token: string, chatId: number, y: number, mo: number, d: number,
-) {
-  const { from, to } = dayBoundsUtc(y, mo, d, club.timezone);
-  const { data, error } = await sb.rpc("bot_period_report", { p_club_id: club.club_id, p_from: from, p_to: to });
-  if (error) return void send(token, chatId, `⚠️ Ошибка: ${error.message}`, { reply_markup: adminKeyboard });
+type ShiftRow = {
+  id: string;
+  status: string;
+  opened_at: string;
+  closed_at: string | null;
+  opener: { full_name: string | null } | null;
+  closer: { full_name: string | null } | null;
+};
 
-  const cur = club.currency_suffix;
+const SHIFT_SELECT =
+  "id,status,opened_at,closed_at," +
+  "opener:profiles!cash_shifts_opened_by_fkey(full_name),closer:profiles!cash_shifts_closed_by_fkey(full_name)";
+
+function durationLabel(fromIso: string, toIso: string): string {
+  const totalMin = Math.max(0, Math.floor((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 60_000));
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h === 0 ? `${m} мин` : m === 0 ? `${h} ч` : `${h} ч ${m} мин`;
+}
+
+// Short "24.09 18:00 – 25.09 06:00" label for shift picker buttons.
+function shiftButtonLabel(s: ShiftRow, timeZone: string): string {
+  const end = s.closed_at ? dayLabel(s.closed_at, timeZone) : "сейчас";
+  return `${s.status === "OPEN" ? "🟢 " : ""}${dayLabel(s.opened_at, timeZone)} – ${end}`;
+}
+
+async function shiftById(sb: SupabaseClient, clubId: string, id: string): Promise<ShiftRow | null> {
+  const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT).eq("club_id", clubId).eq("id", id).maybeSingle();
+  return (data as unknown as ShiftRow) ?? null;
+}
+
+async function recentShifts(sb: SupabaseClient, clubId: string, limit: number): Promise<ShiftRow[]> {
+  const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT)
+    .eq("club_id", clubId).order("opened_at", { ascending: false }).limit(limit);
+  return (data ?? []) as unknown as ShiftRow[];
+}
+
+// A shift runs from its opening to its closing (or to now while it's still
+// open) -- e.g. opened on the 24th in the evening, closed on the 25th in the
+// morning -- so the owner sees the whole shift, not a calendar day cut at 00:00.
+function shiftBounds(s: ShiftRow): { from: string; to: string } {
+  return { from: s.opened_at, to: s.closed_at ?? new Date().toISOString() };
+}
+
+function shiftHeader(s: ShiftRow, timeZone: string): string {
+  const { to } = shiftBounds(s);
+  const opener = s.opener?.full_name ? ` · ${s.opener.full_name}` : "";
+  const closer = s.closer?.full_name ? ` · ${s.closer.full_name}` : "";
+  const closedLine = s.closed_at
+    ? `🔴 Закрыта: <b>${fmtDateTimeRu(s.closed_at, timeZone)}</b>${closer}`
+    : `🟢 Смена открыта — идёт сейчас`;
+  return (
+    `🕘 Открыта: <b>${fmtDateTimeRu(s.opened_at, timeZone)}</b>${opener}\n` +
+    `${closedLine}\n` +
+    `⏱ Длительность: ${durationLabel(s.opened_at, to)}`
+  );
+}
+
+function reportBody(data: Record<string, any> | null, cur: string): string {
   const byMethod = Object.entries((data?.by_payment_method ?? {}) as Record<string, number>)
     .map(([name, amount]) => `${name} — ${money(amount)} ${cur}`)
     .join("\n");
@@ -561,8 +613,7 @@ async function showDayReport(
     .map(([reason, amount]) => `  · ${reason} — ${money(amount)} ${cur}`)
     .join("\n");
 
-  const text =
-    `📈 <b>Отчёт за ${fmtDateRu(y, mo, d)}</b>\n\n` +
+  return (
     `Выручка: <b>${money(Number(data?.revenue ?? 0))} ${cur}</b> · ${data?.orders_count ?? 0} чеков\n\n` +
     `PlayStation: ${money(Number(data?.time_playstation ?? 0))} ${cur}\n` +
     `Бильярд: ${money(Number(data?.time_billiard ?? 0))} ${cur}\n` +
@@ -571,27 +622,14 @@ async function showDayReport(
     (byMethod ? `\n${byMethod}\n` : "\n") +
     `\nРасходы: ${money(Number(data?.expenses ?? 0))} ${cur}\n` +
     (Number(data?.discount_total ?? 0) > 0
-      ? `Скидки: ${money(Number(data.discount_total))} ${cur}\n${discountByReason}\n`
+      ? `Скидки: ${money(Number(data?.discount_total))} ${cur}\n${discountByReason}\n`
       : "") +
-    `\nЧистая прибыль: <b>${money(Number(data?.net_profit ?? 0))} ${cur}</b>`;
-
-  await send(token, chatId, text, {
-    reply_markup: { inline_keyboard: [[{ text: "📥 Скачать Excel", callback_data: `repxls:${isoDate(y, mo, d)}` }]] },
-  });
+    `\nЧистая прибыль: <b>${money(Number(data?.net_profit ?? 0))} ${cur}</b>`
+  );
 }
 
-async function sendDayReportExcel(
-  sb: SupabaseClient, club: Club, token: string, chatId: number, y: number, mo: number, d: number,
-) {
-  const { from, to } = dayBoundsUtc(y, mo, d, club.timezone);
-  const [{ data: report }, { data: top }] = await Promise.all([
-    sb.rpc("bot_period_report", { p_club_id: club.club_id, p_from: from, p_to: to }),
-    sb.rpc("bot_top_products", { p_club_id: club.club_id, p_from: from, p_to: to, p_limit: 100 }),
-  ]);
-
-  const rows: unknown[][] = [
-    ["Отчёт", fmtDateRu(y, mo, d)],
-    [],
+function reportRows(report: Record<string, any> | null, top: Array<Record<string, unknown>> | null): unknown[][] {
+  return [
     ["Выручка", report?.revenue ?? 0],
     ["Чеков", report?.orders_count ?? 0],
     ["PlayStation", report?.time_playstation ?? 0],
@@ -610,7 +648,126 @@ async function sendDayReportExcel(
     ...Object.entries((report?.discount_by_reason ?? {}) as Record<string, number>),
     [],
     ["Товар", "Категория", "Кол-во", "Выручка"],
-    ...((top ?? []) as Array<Record<string, unknown>>).map((p) => [p.product_name, p.category_name ?? "", p.quantity, p.revenue]),
+    ...(top ?? []).map((p) => [p.product_name, p.category_name ?? "", p.quantity, p.revenue]),
+  ];
+}
+
+async function showShiftReport(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, shift: ShiftRow, note = "",
+) {
+  const { from, to } = shiftBounds(shift);
+  const { data, error } = await sb.rpc("bot_period_report", { p_club_id: club.club_id, p_from: from, p_to: to });
+  if (error) return void send(token, chatId, `⚠️ Ошибка: ${error.message}`, { reply_markup: adminKeyboard });
+
+  const text =
+    `📈 <b>Отчёт за смену</b>\n` +
+    (note ? `<i>${note}</i>\n` : "") +
+    `\n${shiftHeader(shift, club.timezone)}\n${DIVIDER}\n\n` +
+    reportBody(data, club.currency_suffix);
+
+  await send(token, chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📥 Скачать Excel", callback_data: `shxls:${shift.id}` }],
+        [{ text: "📋 Другие смены", callback_data: "rep:list" }],
+      ],
+    },
+  });
+}
+
+async function showCurrentShiftReport(sb: SupabaseClient, club: Club, token: string, chatId: number) {
+  const [latest] = await recentShifts(sb, club.club_id, 1);
+  if (!latest) return void send(token, chatId, "Смен пока не было.", { reply_markup: adminKeyboard });
+  const note = latest.status === "OPEN" ? "" : "Сейчас смена не открыта — показана последняя закрытая.";
+  await showShiftReport(sb, club, token, chatId, latest, note);
+}
+
+async function showPreviousShiftReport(sb: SupabaseClient, club: Club, token: string, chatId: number) {
+  const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT)
+    .eq("club_id", club.club_id).neq("status", "OPEN")
+    .order("opened_at", { ascending: false }).limit(1).maybeSingle();
+  if (!data) return void send(token, chatId, "Закрытых смен пока нет.", { reply_markup: adminKeyboard });
+  await showShiftReport(sb, club, token, chatId, data as unknown as ShiftRow);
+}
+
+async function sendShiftPicker(token: string, chatId: number, title: string, shifts: ShiftRow[], timeZone: string) {
+  await send(token, chatId, title, {
+    reply_markup: {
+      inline_keyboard: [
+        ...shifts.map((s) => [{ text: shiftButtonLabel(s, timeZone), callback_data: `shift:${s.id}` }]),
+        [{ text: "Назад", callback_data: "rep:menu" }],
+      ],
+    },
+  });
+}
+
+async function showShiftList(sb: SupabaseClient, club: Club, token: string, chatId: number) {
+  const shifts = await recentShifts(sb, club.club_id, 10);
+  if (shifts.length === 0) return void send(token, chatId, "Смен пока не было.", { reply_markup: adminKeyboard });
+  await sendShiftPicker(token, chatId, "📋 <b>Последние смены</b>\n\nВыберите смену:", shifts, club.timezone);
+}
+
+// Calendar pick: the shifts opened on that day (a shift opened on the 24th
+// and closed on the 25th belongs to the 24th).
+async function showShiftsForDay(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, y: number, mo: number, d: number,
+) {
+  const { from, to } = dayBoundsUtc(y, mo, d, club.timezone);
+  const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT)
+    .eq("club_id", club.club_id).gte("opened_at", from).lt("opened_at", to)
+    .order("opened_at", { ascending: true });
+  const shifts = (data ?? []) as unknown as ShiftRow[];
+  if (shifts.length === 1) return showShiftReport(sb, club, token, chatId, shifts[0]);
+  if (shifts.length === 0) {
+    return void send(token, chatId, `${fmtDateRu(y, mo, d)} смена не открывалась.`, {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "🗓 Другой день", callback_data: `calnav:${y}-${pad(mo)}` },
+          { text: "Назад", callback_data: "rep:menu" },
+        ]],
+      },
+    });
+  }
+  await sendShiftPicker(token, chatId, `Смены за ${fmtDateRu(y, mo, d)}:`, shifts, club.timezone);
+}
+
+async function sendShiftReportExcel(sb: SupabaseClient, club: Club, token: string, chatId: number, shift: ShiftRow) {
+  const { from, to } = shiftBounds(shift);
+  const [{ data: report }, { data: top }] = await Promise.all([
+    sb.rpc("bot_period_report", { p_club_id: club.club_id, p_from: from, p_to: to }),
+    sb.rpc("bot_top_products", { p_club_id: club.club_id, p_from: from, p_to: to, p_limit: 100 }),
+  ]);
+  const opened = fmtDateTimeRu(shift.opened_at, club.timezone);
+  const closed = shift.closed_at ? fmtDateTimeRu(shift.closed_at, club.timezone) : "смена открыта";
+  const rows: unknown[][] = [
+    ["Отчёт за смену"],
+    ["Открыта", opened, shift.opener?.full_name ?? ""],
+    ["Закрыта", closed, shift.closer?.full_name ?? ""],
+    ["Длительность", durationLabel(from, to)],
+    [],
+    ...reportRows(report, top as Array<Record<string, unknown>> | null),
+  ];
+  const openedDay = new Intl.DateTimeFormat("en-CA", { timeZone: club.timezone }).format(new Date(shift.opened_at));
+  await sendDocument(
+    token, chatId, `shift_${openedDay}.csv`, csvRows(rows),
+    `📈 Отчёт за смену ${opened} – ${closed}`,
+  );
+}
+
+// Kept for "📥 Скачать Excel" buttons on day reports already sent before
+// reports switched to shifts.
+async function sendDayReportExcel(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, y: number, mo: number, d: number,
+) {
+  const { from, to } = dayBoundsUtc(y, mo, d, club.timezone);
+  const [{ data: report }, { data: top }] = await Promise.all([
+    sb.rpc("bot_period_report", { p_club_id: club.club_id, p_from: from, p_to: to }),
+    sb.rpc("bot_top_products", { p_club_id: club.club_id, p_from: from, p_to: to, p_limit: 100 }),
+  ]);
+  const rows: unknown[][] = [
+    ["Отчёт", fmtDateRu(y, mo, d)],
+    [],
+    ...reportRows(report, top as Array<Record<string, unknown>> | null),
   ];
   await sendDocument(
     token, chatId, `report_${isoDate(y, mo, d)}.csv`, csvRows(rows),
@@ -1394,11 +1551,11 @@ app.post("/club-bot", async (req, res) => {
       if (userRole === "ADMIN" && data.startsWith("rep:")) {
         const action = data.slice(4);
         const t = todayInZone(c.timezone);
-        if (action === "today") await showDayReport(sb, c, token, chatId, t.y, t.mo, t.d);
-        else if (action === "yesterday") {
-          const y = new Date(Date.UTC(t.y, t.mo - 1, t.d - 1));
-          await showDayReport(sb, c, token, chatId, y.getUTCFullYear(), y.getUTCMonth() + 1, y.getUTCDate());
-        } else if (action === "cal") {
+        // "today"/"yesterday" are the pre-shift buttons still sitting in old chats.
+        if (action === "cur" || action === "today") await showCurrentShiftReport(sb, c, token, chatId);
+        else if (action === "prev" || action === "yesterday") await showPreviousShiftReport(sb, c, token, chatId);
+        else if (action === "list") await showShiftList(sb, c, token, chatId);
+        else if (action === "cal") {
           await send(token, chatId, "Выберите день:", { reply_markup: buildCalendar(t.y, t.mo) });
         } else if (action === "topprod") await showTopProducts(sb, c, token, chatId);
         else if (action === "menu") await showReportMenu(token, chatId);
@@ -1411,7 +1568,18 @@ app.post("/club-bot", async (req, res) => {
       }
       if (userRole === "ADMIN" && data.startsWith("calday:")) {
         const [y, mo, d] = data.slice(7).split("-").map(Number);
-        await showDayReport(sb, c, token, chatId, y, mo, d);
+        await showShiftsForDay(sb, c, token, chatId, y, mo, d);
+        return res.send("ok");
+      }
+      if (userRole === "ADMIN" && (data.startsWith("shift:") || data.startsWith("shxls:"))) {
+        const shift = await shiftById(sb, c.club_id, data.slice(6));
+        if (!shift) {
+          await send(token, chatId, "Смена не найдена.", { reply_markup: adminKeyboard });
+        } else if (data.startsWith("shift:")) {
+          await showShiftReport(sb, c, token, chatId, shift);
+        } else {
+          await sendShiftReportExcel(sb, c, token, chatId, shift);
+        }
         return res.send("ok");
       }
       if (userRole === "ADMIN" && data.startsWith("repxls:")) {
