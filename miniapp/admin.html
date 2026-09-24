@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0a0f14">
+<title>Velora Admin</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script async src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" onload="window.dispatchEvent(new Event('icons-ready'))"></script>
+<style>
+:root{--bg:#080c10;--surface:#111820;--line:rgba(200,220,255,.10);--text:#f2f5f8;--muted:#8d99a6;--accent:#4c9eff;--accent2:#2f7be0;--red:#ff6b6b;--green:#39efad;--amber:#ffbf4a;--safe-top:max(14px,env(safe-area-inset-top));--safe-bottom:max(10px,env(safe-area-inset-bottom))}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,textarea{font:inherit;color:inherit}
+.app{max-width:560px;margin:auto;min-height:100dvh;padding:var(--safe-top) 16px calc(88px + var(--safe-bottom))}
+.topbar{display:flex;align-items:center;gap:10px;height:52px}
+.topbar h1{font-size:19px;margin:0;letter-spacing:-.3px}
+.topbar .role{margin-left:auto;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:4px 10px}
+.tabs{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:min(560px,100%);display:grid;grid-template-columns:repeat(5,1fr);background:linear-gradient(180deg,rgba(8,12,16,.2),#0c1218 25%);border-top:1px solid var(--line);padding:8px 6px var(--safe-bottom);backdrop-filter:blur(16px);z-index:20}
+.tabs button{border:0;background:transparent;color:#6f7c88;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;padding:6px 2px;border-radius:10px;position:relative}
+.tabs button.active{color:var(--accent)}
+.tabs svg{width:20px;height:20px}
+.badge{position:absolute;top:2px;right:16%;min-width:15px;height:15px;border-radius:8px;background:var(--red);color:#fff;font-size:9px;font-weight:800;display:grid;place-items:center;padding:0 3px}
+.card{background:linear-gradient(145deg,#121a22,#0c1218);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px}
+.card h3{margin:0 0 6px;font-size:15px}
+.card p{margin:2px 0;color:var(--muted);font-size:12.5px;line-height:1.5}
+.row{display:flex;gap:8px;margin-top:10px}
+.btn{flex:1;border:0;border-radius:11px;padding:10px 8px;font-size:12.5px;font-weight:700;text-align:center}
+.btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04101e}
+.btn.ghost{background:var(--surface);border:1px solid var(--line);color:var(--text)}
+.btn.danger{background:rgba(255,107,107,.12);color:var(--red);border:1px solid rgba(255,107,107,.35)}
+.btn.full{width:100%}
+.section-title{font-size:20px;letter-spacing:-.4px;margin:18px 0 10px}
+.empty{border:1px solid var(--line);border-radius:16px;padding:30px 18px;text-align:center;color:var(--muted);background:var(--surface)}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:6px}
+.field input,.field textarea{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 12px;color:var(--text)}
+.field textarea{min-height:70px;resize:vertical}
+.switch-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0}
+.switch{width:44px;height:26px;border-radius:14px;background:#232f3a;position:relative;border:0}
+.switch.on{background:var(--green)}
+.switch:after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s ease}
+.switch.on:after{transform:translateX(18px)}
+.thread{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid var(--line)}
+.thread .grow{flex:1;min-width:0}
+.thread b{font-size:14px}
+.thread small{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(145deg,var(--accent),var(--accent2));display:grid;place-items:center;font-weight:800;color:#04101e;flex-shrink:0}
+#app.chat-open{display:flex;flex-direction:column;height:100dvh;padding-bottom:var(--safe-bottom)}
+#app.chat-open .chat-list{flex:1 1 auto;overflow-y:auto}
+.chat-list{display:flex;flex-direction:column;gap:8px;padding:6px 2px 14px;min-height:120px}
+.chat-bubble{max-width:78%;padding:10px 13px;border-radius:16px;background:var(--surface);border:1px solid var(--line);font-size:13.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+.chat-bubble.me{align-self:flex-end;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04101e;border:0;border-bottom-right-radius:4px}
+.chat-bubble:not(.me){border-bottom-left-radius:4px}
+.chat-bubble small{display:block;margin-top:5px;opacity:.6;font-size:10px;letter-spacing:.2px}
+.chat-bubble.me small{opacity:.55}
+.chat-compose{display:grid;grid-template-columns:1fr 46px;gap:8px;flex:0 0 auto;position:sticky;bottom:0;background:linear-gradient(180deg,transparent,var(--bg) 30%);padding:10px 0 2px}
+.chat-compose input{height:46px;border-radius:23px;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:0 16px;font-size:13.5px}
+.chat-compose input::placeholder{color:var(--muted)}
+.chat-compose input:focus{outline:0;border-color:var(--accent)}
+.chat-compose button{border:0;border-radius:50%;width:46px;height:46px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04101e;flex-shrink:0}
+.chat-compose button:disabled{opacity:.5}
+.chat-compose button svg{width:18px;height:18px}
+.photo-thumb{width:100%;aspect-ratio:16/9;border-radius:12px;background:#0c1218 center/cover;border:1px solid var(--line);margin-bottom:8px;display:grid;place-items:center;color:var(--muted);overflow:hidden}
+.photo-thumb img{width:100%;height:100%;object-fit:cover}
+.back{border:0;background:var(--surface);border:1px solid var(--line);border-radius:11px;width:38px;height:38px;display:grid;place-items:center}
+.skeleton{height:70px;border-radius:14px;background:linear-gradient(90deg,#0e151c,#161f28,#0e151c);background-size:200%;animation:sh 1.4s infinite;margin-bottom:10px}
+@keyframes sh{to{background-position:-200%}}
+.loader{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:90}
+.loader.hide{display:none}
+.ring{width:40px;height:40px;border-radius:50%;border:3px solid #182530;border-top-color:var(--accent);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,16px);width:min(420px,calc(100% - 32px));background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;opacity:0;pointer-events:none;transition:.25s;z-index:60}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div id="loader" class="loader"><div class="ring"></div></div>
+<div id="toast" class="toast"></div>
+<script>
+let tg=window.Telegram?.WebApp;
+try{tg?.ready();tg?.expand();tg?.setHeaderColor?.('#080c10');tg?.setBackgroundColor?.('#080c10')}catch(_){}
+const params=new URLSearchParams(location.search),clubId=params.get('c')||'';
+const initData=()=>window.Telegram?.WebApp?.initData||'';
+const API='https://aatriitpqpwhdcehjzip.supabase.co/functions/v1/admin-webapp';
+const icons=()=>window.lucide?.createIcons({attrs:{'stroke-width':1.8}});
+window.addEventListener('icons-ready',icons);
+const money=n=>Math.round(Number(n||0)).toLocaleString('ru-RU');
+const escapeHtml=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const state={tab:'home',club:null,role:null,bookings:[],threads:[],thread:null,activeCustomer:null,promos:[],resources:[]};
+function toast(msg){const e=document.querySelector('#toast');e.textContent=msg;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2600)}
+const api=async(action,payload={})=>{
+  try{
+    const r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,c:clubId,initData:initData(),payload})});
+    const data=await r.json().catch(()=>({error:'network'}));
+    if(!r.ok&&!data.error)data.error='network';
+    return data;
+  }catch(e){return {error:'network'}}
+};
+function topBar(title,back){return `<div class="topbar">${back?'<button class="back" onclick="'+back+'"><i data-lucide="chevron-left"></i></button>':''}<h1>${title}</h1></div>`}
+function readFile(input){return new Promise((resolve,reject)=>{const f=input.files&&input.files[0];if(!f)return resolve(null);if(f.size>8*1024*1024)return reject(new Error('big'));const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(f)})}
+
+async function boot(){
+  if(!clubId){document.querySelector('#app').innerHTML='<div class="empty">Откройте через кнопку в боте клуба</div>';document.querySelector('#loader').classList.add('hide');return}
+  const r=await api('bootstrap');
+  document.querySelector('#loader').classList.add('hide');
+  if(r.error){document.querySelector('#app').innerHTML=`<div class="empty"><b>Нет доступа</b><p>Откройте мини-апп из бота клуба, где у вас роль администратора.</p></div>`;return}
+  state.club=r.club;state.role=r.role;state.counts=r.counts||{};
+  renderTabs();
+  switchTab('home');
+}
+function renderTabs(){
+  document.querySelector('#app').insertAdjacentHTML('afterbegin','');
+}
+function tabsHtml(){
+  const c=state.counts||{};
+  return `<div class="tabs">
+    <button data-tab="home" class="${state.tab==='home'?'active':''}"><i data-lucide="layout-dashboard"></i><span>Обзор</span></button>
+    <button data-tab="bookings" class="${state.tab==='bookings'?'active':''}"><i data-lucide="calendar-check"></i><span>Брони</span>${c.pendingBookings?`<span class="badge">${c.pendingBookings}</span>`:''}</button>
+    <button data-tab="chat" class="${state.tab==='chat'?'active':''}"><i data-lucide="message-circle"></i><span>Чат</span>${c.unreadChats?`<span class="badge">${c.unreadChats}</span>`:''}</button>
+    <button data-tab="promos" class="${state.tab==='promos'?'active':''}"><i data-lucide="ticket-percent"></i><span>Акции</span></button>
+    <button data-tab="settings" class="${state.tab==='settings'?'active':''}"><i data-lucide="settings"></i><span>Ещё</span></button>
+  </div>`;
+}
+function switchTab(tab){state.tab=tab;stopChatPoll();document.querySelector('#app').classList.remove('chat-open');
+  if(tab==='home')renderHome();
+  if(tab==='bookings')renderBookings();
+  if(tab==='chat')renderThreads();
+  if(tab==='promos')renderPromos();
+  if(tab==='settings')renderSettings();
+}
+function shell(inner){const app=document.querySelector('#app');app.classList.remove('chat-open');app.innerHTML=inner+tabsHtml();document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));icons()}
+
+function renderHome(){
+  const c=state.club||{};
+  shell(`${topBar(c.name||'Клуб')}
+    <div class="card"><h3>👋 Панель администратора</h3><p>Здесь — брони на подтверждение, чат с клиентами, акции, фото и режим работы клуба.</p></div>
+    <div class="card" onclick="switchTab('bookings')"><h3>📅 Ожидают подтверждения</h3><p>${state.counts.pendingBookings||0} броней</p></div>
+    <div class="card" onclick="switchTab('chat')"><h3>💬 Непрочитанные сообщения</h3><p>${state.counts.unreadChats||0} чатов</p></div>
+  `);
+}
+
+async function renderBookings(){
+  shell(`${topBar('Брони на подтверждение')}<div class="skeleton"></div><div class="skeleton"></div>`);
+  const r=await api('bookings_pending');
+  state.bookings=r.bookings||[];
+  paintBookings();
+}
+function paintBookings(){
+  const list=state.bookings;
+  document.querySelector('#app').innerHTML=`${topBar('Брони на подтверждение')}${list.length?list.map(b=>`<div class="card"><h3>${escapeHtml(b.resource_name)}</h3><p>🕒 ${escapeHtml(b.when)}</p><p>👤 ${escapeHtml(b.customer_name||'Гость')}${b.customer_phone?' · '+escapeHtml(b.customer_phone):''}</p><div class="row"><button class="btn primary" onclick="confirmBooking('${b.id}')">✅ Подтвердить</button><button class="btn danger" onclick="cancelBookingAdmin('${b.id}')">✕ Отменить</button></div></div>`).join(''):'<div class="empty">Нет броней, ожидающих подтверждения</div>'}${tabsHtml()}`;
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));icons();
+}
+async function confirmBooking(id){const r=await api('booking_confirm',{id});if(r.ok){toast('Подтверждено');state.bookings=state.bookings.filter(b=>b.id!==id);state.counts.pendingBookings=state.bookings.length;paintBookings()}else toast('Не удалось')}
+async function cancelBookingAdmin(id){const r=await api('booking_cancel',{id});if(r.ok){toast('Отменено');state.bookings=state.bookings.filter(b=>b.id!==id);state.counts.pendingBookings=state.bookings.length;paintBookings()}else toast('Не удалось')}
+
+async function renderThreads(){
+  shell(`${topBar('Чат с клиентами')}<div class="skeleton"></div><div class="skeleton"></div>`);
+  const r=await api('chat_threads');
+  state.threads=r.threads||[];
+  document.querySelector('#app').innerHTML=`${topBar('Чат с клиентами')}${state.threads.length?`<div>${state.threads.map(th=>`<div class="thread" onclick="openThread('${th.customer_id}','${escapeHtml(th.full_name||'Клиент').replace(/'/g,"&#39;")}')"><div class="avatar">${escapeHtml((th.full_name||'?')[0])}</div><div class="grow"><b>${escapeHtml(th.full_name||'Клиент')}</b><small>${escapeHtml(th.last_body||'')}</small></div>${th.unread?`<span class="badge" style="position:static">${th.unread}</span>`:''}</div>`).join('')}</div>`:'<div class="empty">Сообщений пока нет</div>'}${tabsHtml()}`;
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));icons();
+}
+async function openThread(customerId,name){
+  state.activeCustomer={id:customerId,name};
+  const app=document.querySelector('#app');
+  app.classList.add('chat-open');
+  app.innerHTML=`${topBar(name,"switchTab('chat')")}<div class="skeleton"></div>`;
+  const r=await api('chat_thread',{customerId});
+  state.thread=r.messages||[];
+  paintThread();
+  stopChatPoll();state.chatPoll=setInterval(pollThread,3000);
+  window.visualViewport?.addEventListener('resize',onChatViewportResize);
+}
+// The keyboard shrinking the visual viewport doesn't fire any scroll event on
+// its own, so without this the newest message stayed hidden behind the
+// keyboard the moment the admin tapped the reply field.
+function onChatViewportResize(){const list=document.querySelector('#chatList');if(list)requestAnimationFrame(()=>list.scrollTo(0,list.scrollHeight))}
+async function pollThread(){
+  if(!state.activeCustomer||!document.querySelector('#chatList'))return stopChatPoll();
+  const r=await api('chat_thread',{customerId:state.activeCustomer.id});
+  if(r.error)return;
+  const msgs=r.messages||[];
+  if(msgs.length!==(state.thread||[]).length){
+    const draft=document.querySelector('#chatInput')?.value||'';
+    state.thread=msgs;paintThread();
+    const input=document.querySelector('#chatInput');if(input&&draft)input.value=draft;
+  }
+}
+function stopChatPoll(){if(state.chatPoll){clearInterval(state.chatPoll);state.chatPoll=null}window.visualViewport?.removeEventListener('resize',onChatViewportResize)}
+function paintThread(){
+  const msgs=state.thread||[];
+  document.querySelector('#app').innerHTML=`${topBar(state.activeCustomer.name,"switchTab('chat')")}<div id="chatList" class="chat-list">${msgs.length?msgs.map(m=>`<div class="chat-bubble ${m.sender_type==='ADMIN'?'me':''}">${escapeHtml(m.body)}<small>${new Intl.DateTimeFormat('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(m.created_at))}</small></div>`).join(''):'<div class="empty">Начните диалог</div>'}</div><div class="chat-compose"><input id="chatInput" placeholder="Ответ клиенту…" maxlength="1000"><button onclick="sendReply()"><i data-lucide="send"></i></button></div>`;
+  icons();const list=document.querySelector('#chatList');if(list)requestAnimationFrame(()=>list.scrollTo(0,list.scrollHeight));
+  const input=document.querySelector('#chatInput');if(input){input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();sendReply()}};if(document.activeElement!==input)input.focus()}
+}
+async function sendReply(){
+  const input=document.querySelector('#chatInput');const message=(input?.value||'').trim();if(!message)return;
+  input.value='';input.disabled=true;
+  const r=await api('chat_reply',{customerId:state.activeCustomer.id,message});
+  input.disabled=false;
+  if(r.ok&&r.message){state.thread=[...(state.thread||[]),r.message];paintThread()}else{toast('Не удалось отправить');input.value=message}
+}
+
+async function renderPromos(){
+  shell(`${topBar('Акции')}<div class="skeleton"></div>`);
+  const r=await api('promotions_list');
+  state.promos=r.promotions||[];
+  paintPromos();
+}
+function paintPromos(){
+  document.querySelector('#app').innerHTML=`${topBar('Акции')}<button class="btn primary full" style="margin-bottom:12px" onclick="editPromo(null)">+ Новая акция</button>${state.promos.length?state.promos.map(p=>`<div class="card">${p.photo_url?`<div class="photo-thumb"><img src="${p.photo_url}"></div>`:''}<h3>${escapeHtml(p.title)}${p.active?'':' <span style="color:var(--muted);font-weight:400;font-size:11px">(скрыта)</span>'}</h3><p>${escapeHtml(p.body||'')}</p><div class="row"><button class="btn ghost" onclick="editPromo('${p.id}')">Изменить</button><button class="btn ${p.active?'danger':'primary'}" onclick="togglePromo('${p.id}',${!p.active})">${p.active?'Скрыть':'Показать'}</button></div></div>`).join(''):'<div class="empty">Акций пока нет</div>'}${tabsHtml()}`;
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));icons();
+}
+async function togglePromo(id,active){const r=await api('promotion_save',{id,active});if(r.ok){const p=state.promos.find(x=>x.id===id);if(p)p.active=active;paintPromos()}}
+function editPromo(id){
+  const p=id?state.promos.find(x=>x.id===id):null;
+  document.querySelector('#app').innerHTML=`${topBar(p?'Изменить акцию':'Новая акция',"switchTab('promos')")}
+    <div class="field"><label>Заголовок</label><input id="pTitle" value="${p?escapeHtml(p.title):''}" maxlength="120"></div>
+    <div class="field"><label>Описание</label><textarea id="pBody" maxlength="600">${p?escapeHtml(p.body||''):''}</textarea></div>
+    <div class="field"><label>Фото</label>${p&&p.photo_url?`<div class="photo-thumb"><img src="${p.photo_url}"></div>`:''}<input id="pPhoto" type="file" accept="image/*"></div>
+    <button class="btn primary full" onclick="savePromo('${id||''}')">Сохранить</button>
+    ${p?'<button class="btn danger full" style="margin-top:10px" id="deletePromoBtn">Удалить акцию</button>':''}
+  `;icons();
+  const delBtn=document.querySelector('#deletePromoBtn');if(delBtn)delBtn.onclick=()=>deletePromo(id);
+}
+async function savePromo(id){
+  const title=document.querySelector('#pTitle').value.trim();
+  const body=document.querySelector('#pBody').value.trim();
+  if(!title){toast('Введите заголовок');return}
+  let photoBase64=null;
+  try{photoBase64=await readFile(document.querySelector('#pPhoto'))}catch(_){toast('Файл слишком большой');return}
+  const r=await api('promotion_save',{id:id||undefined,title,body,photoBase64});
+  if(r.ok)renderPromos();else toast('Не удалось сохранить')
+}
+async function deletePromo(id){const r=await api('promotion_delete',{id});if(r.ok)renderPromos();else toast('Не удалось удалить')}
+
+async function renderResourcesInline(){
+  const r=await api('resources_list');
+  state.resources=r.resources||[];
+  return state.resources.map(res=>`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="margin:0">${escapeHtml(res.name)}</h3></div>${res.photo_url?`<div class="photo-thumb"><img src="${res.photo_url}"></div>`:'<div class="photo-thumb">Нет фото</div>'}<input type="file" accept="image/*" onchange="uploadResourcePhoto('${res.id}',this)"></div>`).join('');
+}
+async function uploadResourcePhoto(id,input){
+  let photoBase64=null;
+  try{photoBase64=await readFile(input)}catch(_){toast('Файл слишком большой');return}
+  if(!photoBase64)return;
+  toast('Загружаем…');
+  const r=await api('resource_set_photo',{id,photoBase64});
+  if(r.ok){toast('Фото обновлено');renderSettings()}else toast('Не удалось загрузить')
+}
+
+async function renderSettings(){
+  shell(`${topBar('Настройки и фото')}<div class="skeleton"></div>`);
+  const r=await api('settings_get');
+  state.settings=r.settings||{};
+  const s=state.settings;
+  const resourcesHtml=await renderResourcesInline();
+  document.querySelector('#app').innerHTML=`${topBar('Настройки и фото')}
+    <div class="section-title" style="margin-top:2px">Тексты</div>
+    <div class="field"><label>Название клуба</label><input id="sName" value="${escapeHtml(s.name||'')}"></div>
+    <div class="field"><label>Телефон</label><input id="sPhone" value="${escapeHtml(s.phone||'')}"></div>
+    <div class="field"><label>Адрес</label><input id="sAddress" value="${escapeHtml(s.address||'')}"></div>
+    <div class="field"><label>Режим работы (как видят клиенты)</label><input id="sHours" value="${escapeHtml(s.workHoursText||'')}" placeholder="10:00 — 02:00"></div>
+    <button class="btn primary full" onclick="saveSettings()">Сохранить тексты</button>
+
+    <div class="section-title">Работаем дольше сегодня</div>
+    <div class="card">
+      ${s.lateActive?`<p>⏳ Действует до ${escapeHtml(s.lateUntilLabel||'')}${s.lateNote?': '+escapeHtml(s.lateNote):''}</p><button class="btn danger full" style="margin-top:8px" onclick="clearLate()">Снять продление</button>`:`
+      <div class="field"><label>Сообщение для клиентов</label><input id="lateNote" placeholder="Сегодня работаем до 3:00"></div>
+      <div class="row"><button class="btn ghost" onclick="extendLate(60)">+1 час</button><button class="btn ghost" onclick="extendLate(120)">+2 часа</button><button class="btn ghost" onclick="extendLate(180)">+3 часа</button></div>
+      `}
+    </div>
+
+    <div class="section-title">Фото приветствия</div>
+    <div class="card">${s.welcomePhoto?`<div class="photo-thumb"><img src="${s.welcomePhoto}"></div>`:'<div class="photo-thumb">Нет фото</div>'}<input type="file" accept="image/*" onchange="uploadWelcomePhoto(this)"></div>
+
+    <div class="section-title">Фото столов</div>
+    ${resourcesHtml||'<div class="empty">Столов пока нет</div>'}
+  ${tabsHtml()}`;
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));icons();
+}
+async function saveSettings(){
+  const payload={name:document.querySelector('#sName').value.trim(),phone:document.querySelector('#sPhone').value.trim(),address:document.querySelector('#sAddress').value.trim(),workHoursText:document.querySelector('#sHours').value.trim()};
+  const r=await api('settings_update',payload);
+  if(r.ok)toast('Сохранено');else toast('Не удалось сохранить')
+}
+async function extendLate(minutes){
+  const note=document.querySelector('#lateNote')?.value.trim()||'';
+  const r=await api('settings_extend',{minutes,note});
+  if(r.ok){toast('Продлено');renderSettings()}else toast('Не удалось')
+}
+async function clearLate(){const r=await api('settings_clear_late');if(r.ok){toast('Продление снято');renderSettings()}}
+async function uploadWelcomePhoto(input){
+  let photoBase64=null;
+  try{photoBase64=await readFile(input)}catch(_){toast('Файл слишком большой');return}
+  if(!photoBase64)return;
+  toast('Загружаем…');
+  const r=await api('settings_set_welcome_photo',{photoBase64});
+  if(r.ok){toast('Фото обновлено');renderSettings()}else toast('Не удалось загрузить')
+}
+
+boot();
+</script>
+</body>
+</html>

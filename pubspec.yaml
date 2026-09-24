@@ -1,0 +1,31 @@
+name: velora_club
+description: Velora Club desktop management application.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  supabase_flutter: ^2.10.0
+  intl: ^0.20.2
+  google_fonts: ^6.2.1
+  window_manager: ^0.5.1
+  qr_flutter: ^4.1.0
+  shared_preferences: ^2.5.5
+  win32: ^6.4.0
+  ffi: ^2.2.0
+  flutter_libserialport: ^0.6.0
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/sounds/notify.wav
