@@ -314,9 +314,31 @@ const dayCalendar = (y: number, mo: number, timeZone: string) =>
   buildCalendar(y, mo, "calday:", currentWorkDay(timeZone));
 
 async function sendDayPicker(cfg: OwnerBotConfig, chatId: number, y: number, mo: number) {
-  await send(cfg.bot_token, chatId, "🗓 Выберите день — отчёт с 07:00 до 07:00 следующего дня:", {
+  await send(cfg.bot_token, chatId, "🗓 Выберите день:", {
     reply_markup: dayCalendar(y, mo, cfg.timezone),
   });
+}
+
+// Shifts that ran during a working day: opened before it ended and not
+// closed before it began. Test open/close clicks under a minute are skipped.
+async function shiftsInDay(sb: SupabaseClient, clubId: string, from: string, to: string): Promise<ShiftRow[]> {
+  const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT)
+    .eq("club_id", clubId).lt("opened_at", to).or(`closed_at.is.null,closed_at.gt."${from}"`)
+    .order("opened_at", { ascending: true });
+  return ((data ?? []) as unknown as ShiftRow[]).filter((s) =>
+    !s.closed_at || new Date(s.closed_at).getTime() - new Date(s.opened_at).getTime() >= 60_000);
+}
+
+function shiftLines(shifts: ShiftRow[], timeZone: string) {
+  if (shifts.length === 0) return "Смена не открывалась.";
+  return shifts.map((s) => {
+    const opener = s.opener?.full_name ? ` · ${esc(s.opener.full_name)}` : "";
+    const closer = s.closer?.full_name ? ` · ${esc(s.closer.full_name)}` : "";
+    return `🟢 Открыта: <b>${shortDateTime(s.opened_at, timeZone)}</b>${opener}\n` +
+      (s.closed_at
+        ? `🔴 Закрыта: <b>${shortDateTime(s.closed_at, timeZone)}</b>${closer}`
+        : "⏳ Смена ещё не закрыта");
+  }).join("\n\n");
 }
 
 async function showDayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number, y: number, mo: number, d: number) {
@@ -325,19 +347,15 @@ async function showDayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: nu
   const again = { inline_keyboard: [[{ text: "🗓 Другой день", callback_data: `calnav:${y}-${pad(mo)}` }]] };
   if (from > now) return void send(cfg.bot_token, chatId, `${fmtDateRu(y, mo, d)} ещё не наступил.`, { reply_markup: again });
 
-  const ongoing = to > now;
-  const { data, error } = await sb.rpc("bot_period_report", { p_club_id: cfg.club_id, p_from: from, p_to: ongoing ? now : to });
+  const [{ data, error }, shifts] = await Promise.all([
+    sb.rpc("bot_period_report", { p_club_id: cfg.club_id, p_from: from, p_to: to > now ? now : to }),
+    shiftsInDay(sb, cfg.club_id, from, to),
+  ]);
   if (error) return void send(cfg.bot_token, chatId, `⚠️ Ошибка: ${error.message}`, { reply_markup: mainKeyboard });
 
-  const next = new Date(Date.UTC(y, mo - 1, d + 1));
-  const range = `${pad(d)}.${pad(mo)} 07:00 → ${pad(next.getUTCDate())}.${pad(next.getUTCMonth() + 1)} 07:00`;
-  const nowLabel = new Intl.DateTimeFormat("ru-RU", { timeZone: cfg.timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-    .format(new Date());
   const text =
-    `📊 <b>Отчёт за ${fmtDateRu(y, mo, d)}</b>\n` +
-    `🕖 ${range}` +
-    (ongoing ? `\n🟢 День идёт · данные на ${nowLabel}` : "") +
-    `\n${DIVIDER}\n\n` +
+    `📊 <b>Отчёт за ${fmtDateRu(y, mo, d)}</b>\n\n` +
+    `${shiftLines(shifts, cfg.timezone)}\n${DIVIDER}\n\n` +
     reportBody(data, cfg);
 
   await send(cfg.bot_token, chatId, text, {
@@ -350,8 +368,8 @@ async function showDayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: nu
   });
 }
 
-// Per-shift reports: only still reached from buttons on messages sent before
-// reports switched to 07:00 → 07:00 working days.
+// Cash shifts: listed at the top of each day report. Separate per-shift
+// reports are only reached from buttons on older messages.
 type ShiftRow = {
   id: string;
   status: string;
@@ -457,14 +475,20 @@ async function sendDayReportExcel(sb: SupabaseClient, cfg: OwnerBotConfig, chatI
   const now = new Date().toISOString();
   const to = bounds.to > now ? now : bounds.to;
   const from = bounds.from;
-  const [{ data: report }, { data: top }] = await Promise.all([
+  const [{ data: report }, { data: top }, shifts] = await Promise.all([
     sb.rpc("bot_period_report", { p_club_id: cfg.club_id, p_from: from, p_to: to }),
     sb.rpc("bot_top_products", { p_club_id: cfg.club_id, p_from: from, p_to: to, p_limit: 100 }),
+    shiftsInDay(sb, cfg.club_id, from, bounds.to),
   ]);
 
   const rows: unknown[][] = [
     ["Отчёт", fmtDateRu(y, mo, d)],
-    ["Период", `${fmtDateTimeRu(from, cfg.timezone)} — ${fmtDateTimeRu(to, cfg.timezone)}`],
+    ...shifts.flatMap((s) => [
+      ["Смена открыта", fmtDateTimeRu(s.opened_at, cfg.timezone), s.opener?.full_name ?? ""],
+      s.closed_at
+        ? ["Смена закрыта", fmtDateTimeRu(s.closed_at, cfg.timezone), s.closer?.full_name ?? ""]
+        : ["Смена закрыта", "ещё не закрыта"],
+    ]),
     [],
     ...reportExcelRows(report, top ?? [], cfg),
   ];
