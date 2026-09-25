@@ -241,6 +241,7 @@ const CLIENT_LABELS = {
   bonus: { ru: "🎁 Мои бонусы", uz: "🎁 Bonuslarim" },
   me: { ru: "👤 Мои данные", uz: "👤 Ma'lumotlarim" },
   invite: { ru: "🤝 Пригласить друга", uz: "🤝 Do'stni taklif qilish" },
+  rival: { ru: "🎱 Найти соперника", uz: "🎱 Raqib topish" },
   lang: { ru: "🌐 Язык", uz: "🌐 Til" },
 } as const;
 type ClientAction = keyof typeof CLIENT_LABELS;
@@ -276,6 +277,7 @@ const clientKeyboardFor = (lang: Lang, clubId?: string) => ({
   // showMenu() via setChatMenuButton, which opens the account correctly.
   keyboard: [
     [{ text: clientLabel("tables", lang) }, { text: clientLabel("book", lang) }],
+    [{ text: clientLabel("rival", lang) }],
     [{ text: clientLabel("bonus", lang) }, { text: clientLabel("me", lang) }],
     [{ text: clientLabel("invite", lang) }, { text: clientLabel("lang", lang) }],
   ],
@@ -1225,16 +1227,218 @@ async function postAdminMessage(
 // A Telegram "reply" to one of our chat pushes: the push's own buttons say
 // which thread it belongs to (Telegram echoes reply_markup in
 // reply_to_message).
-function chatTargetOfReply(replyTo: any): { kind: "client" } | { kind: "admin"; customerId: string } | null {
+function chatTargetOfReply(replyTo: any):
+  { kind: "client" } | { kind: "admin"; customerId: string } | { kind: "match"; matchId: string } | null {
   const rows = (replyTo?.reply_markup?.inline_keyboard ?? []) as Array<Array<{ callback_data?: string }>>;
   for (const row of rows) {
     for (const button of row) {
       const data = String(button.callback_data ?? "");
       if (data === "chatc") return { kind: "client" };
       if (data.startsWith("chatreply:")) return { kind: "admin", customerId: data.slice(10) };
+      if (data.startsWith("mtr:")) return { kind: "match", matchId: data.slice(4) };
     }
   }
   return null;
+}
+
+// --- Найти соперника ----------------------------------------------------------
+// The bot only drives the match_* RPCs; the broadcast to every client, the
+// confirmations and the relayed messages between the two players are sent
+// by the match-notify edge function the DB triggers fire.
+
+const MATCH_LEVELS: Record<string, { ru: string; uz: string }> = {
+  NOVICE: { ru: "🟢 Новичок", uz: "🟢 Boshlovchi" },
+  MIDDLE: { ru: "🟡 Средний", uz: "🟡 O'rta" },
+  PRO: { ru: "🔴 Профи", uz: "🔴 Professional" },
+};
+
+const matchAppButton = (clubId: string, lang: Lang) =>
+  ({ text: L(lang, "📱 Открыть в приложении", "📱 Ilovada ochish"), web_app: { url: `${MINI_APP_URL}?c=${encodeURIComponent(clubId)}&match=1` } });
+
+function matchWhen(playAt: string, timeZone: string, lang: Lang) {
+  const at = new Date(playAt);
+  if (at.getTime() <= Date.now() + 5 * 60_000) return L(lang, "сейчас", "hozir");
+  const day = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(d);
+  return day(at) === day(new Date())
+    ? L(lang, `сегодня в ${hhmm(playAt, timeZone)}`, `bugun ${hhmm(playAt, timeZone)}`)
+    : L(lang, `завтра в ${hhmm(playAt, timeZone)}`, `ertaga ${hhmm(playAt, timeZone)}`);
+}
+
+async function requireMatchCustomer(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, lang: Lang) {
+  const customer = await chatCustomerByTg(sb, club.club_id, tgId);
+  if (!customer) {
+    await send(token, chatId, L(lang,
+      "🎱 Чтобы искать соперника, сначала отправьте свой номер — так игроки будут знать, что вы из клуба.",
+      "🎱 Raqib qidirish uchun avval raqamingizni yuboring — shunda o'yinchilar sizni klubdan ekaningizni bilishadi."),
+    { reply_markup: contactKeyboardFor(lang) });
+  }
+  return customer;
+}
+
+async function showMatchBoard(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, lang: Lang) {
+  const customer = await requireMatchCustomer(sb, club, token, chatId, tgId, lang);
+  if (!customer) return;
+  const { data: board, error } = await sb.rpc("match_board", { p_club_id: club.club_id, p_customer_id: customer.id });
+  if (error) return void send(token, chatId, `⚠️ ${error.message}`, { reply_markup: clientKeyboardFor(lang) });
+  const tz = club.timezone;
+
+  if (board?.mine) {
+    const m = board.mine;
+    const level = (MATCH_LEVELS[m.level] ?? MATCH_LEVELS.MIDDLE)[lang];
+    if (m.status === "MATCHED" && m.opponent) {
+      return void send(token, chatId,
+        L(lang,
+          `🎉 <b>Соперник найден</b>\n\n👤 <b>${esc(m.opponent.name)}</b>\n🕗 ${matchWhen(m.play_at, tz, lang)} · ${level}`,
+          `🎉 <b>Raqib topildi</b>\n\n👤 <b>${esc(m.opponent.name)}</b>\n🕗 ${matchWhen(m.play_at, tz, lang)} · ${level}`),
+        { reply_markup: { inline_keyboard: [
+          [{ text: L(lang, "💬 Написать сопернику", "💬 Raqibga yozish"), callback_data: `mtr:${m.id}` }],
+          [{ text: L(lang, "❌ Отменить игру", "❌ O'yinni bekor qilish"), callback_data: `mtc:${m.id}` }],
+        ] } });
+    }
+    return void send(token, chatId,
+      L(lang,
+        `⏳ <b>Ищем вам соперника…</b>\n\n🕗 ${matchWhen(m.play_at, tz, lang)} · ${level}\nЗаявку видят все игроки клуба — как только кто-то нажмёт «Сыграю!», сразу сообщу.`,
+        `⏳ <b>Sizga raqib qidiryapmiz…</b>\n\n🕗 ${matchWhen(m.play_at, tz, lang)} · ${level}\nSo'rovni klubning barcha o'yinchilari ko'radi — kimdir «O'ynayman!» ni bossa, darhol xabar beraman.`),
+      { reply_markup: { inline_keyboard: [
+        [{ text: L(lang, "❌ Отменить заявку", "❌ So'rovni bekor qilish"), callback_data: `mtc:${m.id}` }],
+        [matchAppButton(club.club_id, lang)],
+      ] } });
+  }
+
+  if (board?.playing) {
+    const p = board.playing;
+    return void send(token, chatId,
+      L(lang,
+        `✅ <b>Вы играете</b>\n\n👤 Соперник: <b>${esc(p.creator.name)}</b>\n🕗 ${matchWhen(p.play_at, tz, lang)}`,
+        `✅ <b>Siz o'ynaysiz</b>\n\n👤 Raqib: <b>${esc(p.creator.name)}</b>\n🕗 ${matchWhen(p.play_at, tz, lang)}`),
+      { reply_markup: { inline_keyboard: [
+        [{ text: L(lang, "💬 Написать сопернику", "💬 Raqibga yozish"), callback_data: `mtr:${p.id}` }],
+        [{ text: L(lang, "↩️ Не смогу", "↩️ Kela olmayman"), callback_data: `mtl:${p.id}` }],
+      ] } });
+  }
+
+  const open = ((board?.open ?? []) as Array<Record<string, any>>).slice(0, 6);
+  const list = open.map((r) =>
+    `• <b>${esc(r.name)}</b> · ${(MATCH_LEVELS[r.level] ?? MATCH_LEVELS.MIDDLE)[lang]} · ${matchWhen(r.play_at, tz, lang)}` +
+      (r.comment ? `\n   💬 «${esc(r.comment)}»` : "")).join("\n");
+  const text = open.length
+    ? L(lang, `🎱 <b>Ищут соперника</b>\n${DIVIDER}\n\n${list}\n\nНажмите «Сыграю» — кто первый, тот и играет.`,
+        `🎱 <b>Raqib qidirishmoqda</b>\n${DIVIDER}\n\n${list}\n\n«O'ynayman» ni bosing — kim birinchi bo'lsa, o'sha o'ynaydi.`)
+    : L(lang, `🎱 <b>Найти соперника</b>\n${DIVIDER}\n\nСейчас никто не ищет игру. Создайте заявку — её увидят все игроки клуба.`,
+        `🎱 <b>Raqib topish</b>\n${DIVIDER}\n\nHozir hech kim o'yin qidirmayapti. So'rov yarating — uni klubning barcha o'yinchilari ko'radi.`);
+  await send(token, chatId, text, { reply_markup: { inline_keyboard: [
+    ...open.map((r) => [{ text: L(lang, `🎱 Сыграю с ${r.name} · ${matchWhen(r.play_at, tz, lang)}`, `🎱 ${r.name} bilan · ${matchWhen(r.play_at, tz, lang)}`), callback_data: `mta:${r.id}` }]),
+    [{ text: L(lang, "➕ Создать заявку", "➕ So'rov yaratish"), callback_data: "mtn" }],
+    [matchAppButton(club.club_id, lang)],
+  ] } });
+}
+
+async function askMatchTime(club: Club, token: string, chatId: number, lang: Lang) {
+  const slots = upcomingSlots(club.timezone, 6);
+  await send(token, chatId, L(lang, "🕗 <b>Когда играем?</b>", "🕗 <b>Qachon o'ynaymiz?</b>"), {
+    reply_markup: { inline_keyboard: [
+      [{ text: L(lang, "⚡ Прямо сейчас", "⚡ Hozir"), callback_data: "mtt:now" }],
+      ...chunk(slots.map((s) => ({ text: s, callback_data: `mtt:${s}` })), 3),
+    ] },
+  });
+}
+
+async function askMatchLevel(token: string, chatId: number, lang: Lang) {
+  await send(token, chatId, L(lang, "🎯 <b>Ваш уровень игры?</b>", "🎯 <b>O'yin darajangiz?</b>"), {
+    reply_markup: { inline_keyboard: [
+      Object.entries(MATCH_LEVELS).map(([key, label]) => ({ text: label[lang], callback_data: `mtv:${key}` })),
+    ] },
+  });
+}
+
+function matchPlayAt(when: string, timeZone: string): Date {
+  const hm = /^(\d{1,2}):(\d{2})$/.exec(when);
+  if (!hm) return new Date();
+  const today = todayInZone(timeZone);
+  let at = zonedTimeToUtc(today.y, today.mo, today.d, Number(hm[1]), Number(hm[2]), timeZone);
+  if (at.getTime() < Date.now() - 5 * 60_000) {
+    const next = new Date(Date.UTC(today.y, today.mo - 1, today.d + 1));
+    at = zonedTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), Number(hm[1]), Number(hm[2]), timeZone);
+  }
+  return at;
+}
+
+const MATCH_REASONS: Record<string, { ru: string; uz: string }> = {
+  TAKEN: { ru: "😕 Кто-то успел раньше — соперник уже найден.", uz: "😕 Kimdir sizdan oldin ulgurdi — raqib topildi." },
+  CLOSED: { ru: "Эта заявка уже неактуальна.", uz: "Bu so'rov endi dolzarb emas." },
+  OWN: { ru: "Это ваша заявка 🙂", uz: "Bu sizning so'rovingiz 🙂" },
+  ALREADY_PLAYING: { ru: "У вас уже есть игра — сначала отмените её.", uz: "Sizda allaqachon o'yin bor — avval uni bekor qiling." },
+  ALREADY_ACTIVE: { ru: "У вас уже есть активная заявка.", uz: "Sizda allaqachon faol so'rov bor." },
+  NOT_FOUND: { ru: "Заявка не найдена.", uz: "So'rov topilmadi." },
+  NOT_MATCHED: { ru: "Эта игра уже неактуальна.", uz: "Bu o'yin endi dolzarb emas." },
+};
+const matchReason = (reason: unknown, lang: Lang) =>
+  (MATCH_REASONS[String(reason)] ?? { ru: "⚠️ Не получилось, попробуйте ещё раз.", uz: "⚠️ Bo'lmadi, qayta urinib ko'ring." })[lang];
+
+// Callback buttons of the "Найти соперника" flow (mt*). Returns false when
+// `data` isn't one of them.
+async function handleMatchCallback(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, lang: Lang, data: string,
+): Promise<boolean> {
+  if (data !== "mtn" && !/^mt[tvalcr]:/.test(data)) return false;
+  const customer = await requireMatchCustomer(sb, club, token, chatId, tgId, lang);
+  if (!customer) return true;
+  const arg = data.slice(4);
+
+  if (data === "mtn") {
+    await setPending(sb, club.club_id, tgId, "match_new");
+    await askMatchTime(club, token, chatId, lang);
+  } else if (data.startsWith("mtt:")) {
+    await setPending(sb, club.club_id, tgId, "match_new", { when: arg });
+    await askMatchLevel(token, chatId, lang);
+  } else if (data.startsWith("mtv:")) {
+    const pending = await getPending(sb, club.club_id, tgId);
+    const when = pending?.action === "match_new" ? String(pending.payload?.when ?? "") : "";
+    if (!when) {
+      await askMatchTime(club, token, chatId, lang);
+      return true;
+    }
+    await setPending(sb, club.club_id, tgId, null);
+    const { data: res } = await sb.rpc("match_create", {
+      p_club_id: club.club_id, p_customer_id: customer.id,
+      p_play_at: matchPlayAt(when, club.timezone).toISOString(), p_level: arg, p_comment: null,
+    });
+    // On success match-notify confirms ("📣 Заявка опубликована") once the
+    // broadcast has gone out.
+    if (!res?.ok) {
+      await send(token, chatId, matchReason(res?.reason, lang), { reply_markup: clientKeyboardFor(lang) });
+      if (res?.reason === "ALREADY_ACTIVE") await showMatchBoard(sb, club, token, chatId, tgId, lang);
+    } else {
+      await send(token, chatId, L(lang, "⏳ Публикуем заявку…", "⏳ So'rovni e'lon qilyapmiz…"), { reply_markup: clientKeyboardFor(lang) });
+    }
+  } else if (data.startsWith("mta:")) {
+    const { data: res } = await sb.rpc("match_accept", { p_match_id: arg, p_customer_id: customer.id });
+    // Success is announced to both players by match-notify.
+    if (!res?.ok) await send(token, chatId, matchReason(res?.reason, lang));
+  } else if (data.startsWith("mtl:")) {
+    const { data: res } = await sb.rpc("match_leave", { p_match_id: arg, p_customer_id: customer.id });
+    if (!res?.ok) await send(token, chatId, matchReason("NOT_MATCHED", lang));
+  } else if (data.startsWith("mtc:")) {
+    const { data: res } = await sb.rpc("match_cancel", { p_match_id: arg, p_customer_id: customer.id });
+    if (!res?.ok) await send(token, chatId, matchReason("CLOSED", lang));
+  } else if (data.startsWith("mtr:")) {
+    await setPending(sb, club.club_id, tgId, "match_reply", { match_id: arg });
+    await send(token, chatId, L(lang, "✍️ Напишите сообщение сопернику.", "✍️ Raqibga xabar yozing."), {
+      reply_markup: { force_reply: true, input_field_placeholder: L(lang, "Сообщение сопернику…", "Raqibga xabar…") },
+    });
+  }
+  return true;
+}
+
+async function matchSend(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, lang: Lang, matchId: string, text: string,
+) {
+  const customer = await requireMatchCustomer(sb, club, token, chatId, tgId, lang);
+  if (!customer) return;
+  const { data: res } = await sb.rpc("match_send", { p_match_id: matchId, p_customer_id: customer.id, p_body: text.slice(0, 1000) });
+  await send(token, chatId, res?.ok
+    ? L(lang, "✅ Отправлено сопернику.", "✅ Raqibga yuborildi.")
+    : matchReason(res?.reason, lang), { reply_markup: clientKeyboardFor(lang, club.club_id) });
 }
 
 async function showMenu(
@@ -1310,6 +1514,9 @@ async function handleText(
     const customer = await chatCustomerById(sb, club.club_id, replyTarget.customerId);
     if (customer) return void adminChatSend(sb, club, token, chatId, tgId, customer, text);
   }
+  if (replyTarget?.kind === "match") {
+    return void matchSend(sb, club, token, chatId, tgId, lang, replyTarget.matchId, text);
+  }
   if (replyTarget?.kind === "client") {
     const customer = await chatCustomerByTg(sb, club.club_id, tgId);
     if (customer) return void clientChatSend(sb, club, token, chatId, tgId, customer, text, lang);
@@ -1332,6 +1539,7 @@ async function handleText(
       case "book": return void clientStartBooking(sb, club, token, chatId, tgId, lang);
       case "invite": return void clientReferral(sb, club, token, chatId, tgId, lang);
       case "lang": return void showLangPicker(token, chatId, lang);
+      case "rival": return void showMatchBoard(sb, club, token, chatId, tgId, lang);
       case "me": {
         const { data } = await sb.rpc("bot_player_card", { p_club_id: club.club_id, p_tg_id: tgId });
         if (!data?.ok) {
@@ -1392,6 +1600,12 @@ async function handleText(
   // relay_admin / relay_client are the older per-booking message buttons
   // (radm:/rcli:) -- they now go through the same chat thread, with the
   // booking as context, so the Mini App shows them too.
+  if (pending?.action === "match_reply") {
+    await setPending(sb, club.club_id, tgId, null);
+    await matchSend(sb, club, token, chatId, tgId, lang, String(pending.payload?.match_id ?? ""), text);
+    return;
+  }
+
   if (pending?.action === "relay_admin" || pending?.action === "chat_client") {
     await setPending(sb, club.club_id, tgId, null);
     const customer = await chatCustomerByTg(sb, club.club_id, tgId);
@@ -1803,6 +2017,8 @@ app.post("/club-bot", async (req, res) => {
         );
         return res.send("ok");
       }
+
+      if (await handleMatchCallback(sb, c, token, chatId, tgId, lang, data)) return res.send("ok");
 
       if (data === "chatc") {
         const customer = await chatCustomerByTg(sb, c.club_id, tgId);
