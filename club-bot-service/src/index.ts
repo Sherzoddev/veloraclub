@@ -1466,6 +1466,7 @@ async function showMenu(
       `👋 Привет, ${firstName}!\n\n` +
       `🎮  Смотреть свободные столы\n` +
       `📅  Забронировать стол\n` +
+      `🎱  Найти соперника\n` +
       `🎁  Проверить бонусы\n` +
       `👤  Открыть свою карточку\n\n` +
       `Выбирай на клавиатуре ниже 👇`,
@@ -1473,6 +1474,7 @@ async function showMenu(
       `👋 Salom, ${firstName}!\n\n` +
       `🎮  Bo'sh joylarni ko'rish\n` +
       `📅  Joy band qilish\n` +
+      `🎱  Raqib topish\n` +
       `🎁  Bonuslarni tekshirish\n` +
       `👤  Kartangizni ochish\n\n` +
       `Quyidagi tugmalardan birini tanlang 👇`);
