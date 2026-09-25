@@ -156,7 +156,8 @@ class ClubRepository {
   Future<List<Map<String, dynamic>>> shifts(String clubId) async => rowList(
         await client
             .from('cash_shifts')
-            .select('*, profiles!cash_shifts_opened_by_fkey(full_name)')
+            .select(
+                '*, profiles!cash_shifts_opened_by_fkey(full_name), closer:profiles!cash_shifts_closed_by_fkey(full_name)')
             .eq('club_id', clubId)
             .order('opened_at', ascending: false)
             .limit(30),
