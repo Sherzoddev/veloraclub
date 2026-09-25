@@ -180,7 +180,7 @@ async function cancelBookingAdmin(id){const r=await api('booking_cancel',{id});i
 // client may be writing from Telegram or the client Mini App). The thread
 // shell is painted once; polling only repaints the list, so the draft, focus
 // and keyboard survive every refresh.
-const QUICK_REPLIES=['Здравствуйте! Чем можем помочь?','Бронь подтверждена ✅ Ждём вас!','Стол свободен — приходите 🎱','К сожалению, сейчас всё занято 🙏','Спасибо! Ждём вас снова 💚'];
+const QUICK_REPLIES=['Здравствуйте! Чем можем помочь?','Бронь подтверждена ✅ Ждём вас!','Стол свободен — приходите ⚪','К сожалению, сейчас всё занято 🙏','Спасибо! Ждём вас снова 💚'];
 const AVATAR_COLORS=[['#4c9eff','#2f7be0'],['#39efad','#12b981'],['#ffbf4a','#f59e0b'],['#c084fc','#9333ea'],['#ff8a80','#ef4444'],['#67e8f9','#0891b2']];
 function avatarStyle(seed){let h=0;for(const ch of String(seed||''))h=(h*31+ch.charCodeAt(0))>>>0;const [a,b]=AVATAR_COLORS[h%AVATAR_COLORS.length];return `background:linear-gradient(145deg,${a},${b})`}
 const initial=name=>escapeHtml((String(name||'?').trim()[0]||'?').toUpperCase());

@@ -241,18 +241,25 @@ const CLIENT_LABELS = {
   bonus: { ru: "🎁 Мои бонусы", uz: "🎁 Bonuslarim" },
   me: { ru: "👤 Мои данные", uz: "👤 Ma'lumotlarim" },
   invite: { ru: "🤝 Пригласить друга", uz: "🤝 Do'stni taklif qilish" },
-  rival: { ru: "🎱 Найти соперника", uz: "🎱 Raqib topish" },
+  rival: { ru: "⚪ Найти соперника", uz: "⚪ Raqib topish" },
   lang: { ru: "🌐 Язык", uz: "🌐 Til" },
 } as const;
 type ClientAction = keyof typeof CLIENT_LABELS;
 
 const clientLabel = (action: ClientAction, lang: Lang) => CLIENT_LABELS[action][lang];
 
+// Labels a client's Telegram may still show from an older keyboard (it only
+// refreshes when the bot sends a new one).
+const LEGACY_CLIENT_LABELS: Record<string, ClientAction> = {
+  "🎱 Найти соперника": "rival",
+  "🎱 Raqib topish": "rival",
+};
+
 function clientActionFor(text: string): ClientAction | null {
   for (const key of Object.keys(CLIENT_LABELS) as ClientAction[]) {
     if (CLIENT_LABELS[key].ru === text || CLIENT_LABELS[key].uz === text) return key;
   }
-  return null;
+  return LEGACY_CLIENT_LABELS[text] ?? null;
 }
 
 const adminKeyboard = {
@@ -804,7 +811,7 @@ async function clientTables(sb: SupabaseClient, club: Club, token: string, chatI
   }
   const freeCount = all.filter((r) => r.is_free).length;
   const text = all.map((r) => {
-    const icon = r.family === "BILLIARD" ? "🎱" : "🎮";
+    const icon = r.family === "BILLIARD" ? "⚪" : "🎮";
     if (r.is_free) {
       return `🟢 ${icon} <b>${r.name}</b> — ${money(Number(r.price_per_hour ?? 0))} ${club.currency_suffix}/${L(lang, "час", "soat")}`;
     }
@@ -1268,8 +1275,8 @@ async function requireMatchCustomer(sb: SupabaseClient, club: Club, token: strin
   const customer = await chatCustomerByTg(sb, club.club_id, tgId);
   if (!customer) {
     await send(token, chatId, L(lang,
-      "🎱 Чтобы искать соперника, сначала отправьте свой номер — так игроки будут знать, что вы из клуба.",
-      "🎱 Raqib qidirish uchun avval raqamingizni yuboring — shunda o'yinchilar sizni klubdan ekaningizni bilishadi."),
+      "⚪ Чтобы искать соперника, сначала отправьте свой номер — так игроки будут знать, что вы из клуба.",
+      "⚪ Raqib qidirish uchun avval raqamingizni yuboring — shunda o'yinchilar sizni klubdan ekaningizni bilishadi."),
     { reply_markup: contactKeyboardFor(lang) });
   }
   return customer;
@@ -1322,12 +1329,12 @@ async function showMatchBoard(sb: SupabaseClient, club: Club, token: string, cha
     `• <b>${esc(r.name)}</b> · ${(MATCH_LEVELS[r.level] ?? MATCH_LEVELS.MIDDLE)[lang]} · ${matchWhen(r.play_at, tz, lang)}` +
       (r.comment ? `\n   💬 «${esc(r.comment)}»` : "")).join("\n");
   const text = open.length
-    ? L(lang, `🎱 <b>Ищут соперника</b>\n${DIVIDER}\n\n${list}\n\nНажмите «Сыграю» — кто первый, тот и играет.`,
-        `🎱 <b>Raqib qidirishmoqda</b>\n${DIVIDER}\n\n${list}\n\n«O'ynayman» ni bosing — kim birinchi bo'lsa, o'sha o'ynaydi.`)
-    : L(lang, `🎱 <b>Найти соперника</b>\n${DIVIDER}\n\nСейчас никто не ищет игру. Создайте заявку — её увидят все игроки клуба.`,
-        `🎱 <b>Raqib topish</b>\n${DIVIDER}\n\nHozir hech kim o'yin qidirmayapti. So'rov yarating — uni klubning barcha o'yinchilari ko'radi.`);
+    ? L(lang, `⚪ <b>Ищут соперника</b>\n${DIVIDER}\n\n${list}\n\nНажмите «Сыграю» — кто первый, тот и играет.`,
+        `⚪ <b>Raqib qidirishmoqda</b>\n${DIVIDER}\n\n${list}\n\n«O'ynayman» ni bosing — kim birinchi bo'lsa, o'sha o'ynaydi.`)
+    : L(lang, `⚪ <b>Найти соперника</b>\n${DIVIDER}\n\nСейчас никто не ищет игру. Создайте заявку — её увидят все игроки клуба.`,
+        `⚪ <b>Raqib topish</b>\n${DIVIDER}\n\nHozir hech kim o'yin qidirmayapti. So'rov yarating — uni klubning barcha o'yinchilari ko'radi.`);
   await send(token, chatId, text, { reply_markup: { inline_keyboard: [
-    ...open.map((r) => [{ text: L(lang, `🎱 Сыграю с ${r.name} · ${matchWhen(r.play_at, tz, lang)}`, `🎱 ${r.name} bilan · ${matchWhen(r.play_at, tz, lang)}`), callback_data: `mta:${r.id}` }]),
+    ...open.map((r) => [{ text: L(lang, `⚪ Сыграю с ${r.name} · ${matchWhen(r.play_at, tz, lang)}`, `⚪ ${r.name} bilan · ${matchWhen(r.play_at, tz, lang)}`), callback_data: `mta:${r.id}` }]),
     [{ text: L(lang, "➕ Создать заявку", "➕ So'rov yaratish"), callback_data: "mtn" }],
     [matchAppButton(club.club_id, lang)],
   ] } });
@@ -1466,7 +1473,7 @@ async function showMenu(
       `👋 Привет, ${firstName}!\n\n` +
       `🎮  Смотреть свободные столы\n` +
       `📅  Забронировать стол\n` +
-      `🎱  Найти соперника\n` +
+      `⚪  Найти соперника\n` +
       `🎁  Проверить бонусы\n` +
       `👤  Открыть свою карточку\n\n` +
       `Выбирай на клавиатуре ниже 👇`,
@@ -1474,7 +1481,7 @@ async function showMenu(
       `👋 Salom, ${firstName}!\n\n` +
       `🎮  Bo'sh joylarni ko'rish\n` +
       `📅  Joy band qilish\n` +
-      `🎱  Raqib topish\n` +
+      `⚪  Raqib topish\n` +
       `🎁  Bonuslarni tekshirish\n` +
       `👤  Kartangizni ochish\n\n` +
       `Quyidagi tugmalardan birini tanlang 👇`);
@@ -1838,7 +1845,7 @@ app.post("/club-bot", async (req, res) => {
             "Спасибо за оценку. Что нам улучшить? Напишите одним сообщением — владелец клуба прочитает лично.",
             "Baho uchun rahmat. Nimani yaxshilashimiz kerak? Bitta xabar bilan yozing — klub egasi shaxsan o'qiydi."));
         } else {
-          await send(token, chatId, L(lang, "Спасибо за оценку! Ждём вас снова 🎱", "Baho uchun rahmat! Sizni yana kutamiz 🎱"));
+          await send(token, chatId, L(lang, "Спасибо за оценку! Ждём вас снова ⚪", "Baho uchun rahmat! Sizni yana kutamiz ⚪"));
         }
         return res.send("ok");
       }

@@ -105,7 +105,7 @@ const appButton = (ctx: Ctx, lang: Lang) =>
 // the "Сыграю!" button is still there.
 function card(m: Match, creator: Person, ctx: Ctx, lang: Lang, state: "open" | "matched" | "cancelled" | "expired") {
   const header = {
-    open: L(lang, "🎱 <b>Ищу соперника на бильярд!</b>", "🎱 <b>Bilyardga raqib qidiryapman!</b>"),
+    open: L(lang, "⚪ <b>Ищу соперника на бильярд!</b>", "⚪ <b>Bilyardga raqib qidiryapman!</b>"),
     matched: L(lang, "✅ <b>Соперник уже найден</b>", "✅ <b>Raqib topildi</b>"),
     cancelled: L(lang, "❌ <b>Заявка отменена</b>", "❌ <b>So'rov bekor qilindi</b>"),
     expired: L(lang, "⌛ <b>Время игры прошло</b>", "⌛ <b>O'yin vaqti o'tdi</b>"),
@@ -121,7 +121,7 @@ function card(m: Match, creator: Person, ctx: Ctx, lang: Lang, state: "open" | "
     lines.push("", L(lang, "Кто первым нажмёт «Сыграю!» — тот и играет 🔥", "Kim birinchi «O'ynayman!» ni bossa — o'sha o'ynaydi 🔥"));
   }
   const reply_markup = state === "open"
-    ? { inline_keyboard: [[{ text: L(lang, "🎱 Сыграю!", "🎱 O'ynayman!"), callback_data: `mta:${m.id}` }], [appButton(ctx, lang)]] }
+    ? { inline_keyboard: [[{ text: L(lang, "⚪ Сыграю!", "⚪ O'ynayman!"), callback_data: `mta:${m.id}` }], [appButton(ctx, lang)]] }
     : { inline_keyboard: [] };
   return { text: lines.join("\n"), reply_markup };
 }
