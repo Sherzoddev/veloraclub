@@ -13,7 +13,7 @@ class ReservationsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(30),
+      padding: pagePadding(context),
       child: Column(
         children: [
           PageHeader(
@@ -49,41 +49,14 @@ class ReservationsPage extends StatelessWidget {
                     return VCard(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 20, vertical: 14),
-                      child: Row(
-                        children: [
-                          Icon(Icons.event_available_outlined,
-                              color: VColors.orange, size: 28),
-                          const SizedBox(width: 18),
-                          Expanded(
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                      '${resource is Map ? resource['name'] : tr('Joy')} — ${row['customer_name'] ?? row['customers']?['full_name'] ?? ''}',
-                                      style: const TextStyle(
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w700)),
-                                  Text(
-                                      '${shortDate(row['starts_at'])} — ${shortDate(row['ends_at'])} · ${row['players_count']} ${tr('o\'yinchi')} · ${row['phone'] ?? ''}',
-                                      style: TextStyle(
-                                          color: VColors.muted)),
-                                ]),
-                          ),
-                          Pill('${row['status']}'.toUpperCase(),
-                              color: VColors.field, foreground: VColors.muted),
-                          const SizedBox(width: 12),
-                          TextButton.icon(
-                              onPressed: () => _start(context, row),
-                              icon: const Icon(Icons.play_arrow_rounded),
-                              label: Text(tr('Boshlash'))),
-                          PopupMenuButton<String>(
-                              itemBuilder: (_) => [
-                                    PopupMenuItem(
-                                        value: 'cancel',
-                                        child: Text(tr('Bekor qilish')))
-                                  ],
-                              onSelected: (_) => _cancel(context, row)),
-                        ],
+                      child: _ReservationRow(
+                        title:
+                            '${resource is Map ? resource['name'] : tr('Joy')} — ${row['customer_name'] ?? row['customers']?['full_name'] ?? ''}',
+                        subtitle:
+                            '${shortDate(row['starts_at'])} — ${shortDate(row['ends_at'])} · ${row['players_count']} ${tr('o\'yinchi')} · ${row['phone'] ?? ''}',
+                        status: '${row['status']}'.toUpperCase(),
+                        onStart: () => _start(context, row),
+                        onCancel: () => _cancel(context, row),
                       ),
                     );
                   },
@@ -107,11 +80,13 @@ class ReservationsPage extends StatelessWidget {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
+              scrollable: true,
               title: Text(tr('Yangi bron')),
               content: SizedBox(
                   width: 500,
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: resourceId,
                         decoration: InputDecoration(labelText: tr('Joy')),
                         items: resources
@@ -128,8 +103,7 @@ class ReservationsPage extends StatelessWidget {
                     const SizedBox(height: 12),
                     TextField(
                         controller: phone,
-                        decoration:
-                            InputDecoration(labelText: tr('Telefon'))),
+                        decoration: InputDecoration(labelText: tr('Telefon'))),
                     const SizedBox(height: 12),
                     ValueListenableBuilder(
                         valueListenable: date,
@@ -171,8 +145,7 @@ class ReservationsPage extends StatelessWidget {
                                             t.minute);
                                       }
                                     },
-                                    icon: const Icon(
-                                        Icons.access_time_rounded),
+                                    icon: const Icon(Icons.access_time_rounded),
                                     label: Text(
                                         '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}')),
                               ),
@@ -238,5 +211,71 @@ class ReservationsPage extends StatelessWidget {
     } catch (e) {
       if (context.mounted) showError(context, e);
     }
+  }
+}
+
+/// One reservation: everything on one line on a wide screen; on a phone the
+/// status and actions drop to a second line under the name and time.
+class _ReservationRow extends StatelessWidget {
+  const _ReservationRow({
+    required this.title,
+    required this.subtitle,
+    required this.status,
+    required this.onStart,
+    required this.onCancel,
+  });
+
+  final String title;
+  final String subtitle;
+  final String status;
+  final VoidCallback onStart;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = isCompactWidth(context);
+    final texts =
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title,
+          style: TextStyle(
+              fontSize: compact ? 15.5 : 17, fontWeight: FontWeight.w700)),
+      Text(subtitle,
+          style:
+              TextStyle(color: VColors.muted, fontSize: compact ? 13 : null)),
+    ]);
+    final start = TextButton.icon(
+        onPressed: onStart,
+        icon: const Icon(Icons.play_arrow_rounded),
+        label: Text(tr('Boshlash')));
+    final menu = PopupMenuButton<String>(
+        itemBuilder: (_) =>
+            [PopupMenuItem(value: 'cancel', child: Text(tr('Bekor qilish')))],
+        onSelected: (_) => onCancel());
+    final pill = Pill(status, color: VColors.field, foreground: VColors.muted);
+    if (compact) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(Icons.event_available_outlined,
+                color: VColors.orange, size: 24),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: texts),
+          menu,
+        ]),
+        const SizedBox(height: 6),
+        Row(children: [pill, const Spacer(), start]),
+      ]);
+    }
+    return Row(children: [
+      Icon(Icons.event_available_outlined, color: VColors.orange, size: 28),
+      const SizedBox(width: 18),
+      Expanded(child: texts),
+      pill,
+      const SizedBox(width: 12),
+      start,
+      menu,
+    ]);
   }
 }

@@ -41,41 +41,38 @@ class _ClubPageState extends State<ClubPage> {
 
   String _familyLabel(String family) =>
       _familyLabels[family] ??
-      (family.isEmpty
-          ? family
-          : family[0] + family.substring(1).toLowerCase());
+      (family.isEmpty ? family : family[0] + family.substring(1).toLowerCase());
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(26, 20, 24, 20),
+      padding: pagePadding(context),
       child: AsyncPane<List<dynamic>>(
         future: load(),
         builder: (context, values) {
           final resources = List<Map<String, dynamic>>.from(values[0])
             ..sort((a, b) {
-              final an = (a['sort_order'] as num?) ?? (a['number'] as num?) ?? 0;
-              final bn = (b['sort_order'] as num?) ?? (b['number'] as num?) ?? 0;
+              final an =
+                  (a['sort_order'] as num?) ?? (a['number'] as num?) ?? 0;
+              final bn =
+                  (b['sort_order'] as num?) ?? (b['number'] as num?) ?? 0;
               return an.compareTo(bn);
             });
           final sessions = values[1] as List<Map<String, dynamic>>;
           final tariffs = values[2] as List<Map<String, dynamic>>;
           final customers = values[3] as List<Map<String, dynamic>>;
           final sessionByResource = {
-            for (final session in sessions)
-              '${session['resource_id']}': session
+            for (final session in sessions) '${session['resource_id']}': session
           };
           final reservations = values[4] as List<Map<String, dynamic>>;
           final reservationByResource = <String, Map<String, dynamic>>{};
           for (final r in reservations) {
             if (r['status'] != 'pending') continue;
-            reservationByResource.putIfAbsent(
-                '${r['resource_id']}', () => r);
+            reservationByResource.putIfAbsent('${r['resource_id']}', () => r);
           }
           final families = <String>{
             for (final r in resources)
-              if (r['resource_types'] is Map)
-                '${r['resource_types']['family']}'
+              if (r['resource_types'] is Map) '${r['resource_types']['family']}'
           }.toList()
             ..sort();
           final filtered = resources.where((r) {
@@ -104,8 +101,8 @@ class _ClubPageState extends State<ClubPage> {
                       minimumSize: const Size(0, 36),
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       side: BorderSide(color: VColors.line),
-                      textStyle: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w700),
+                      textStyle: appFont(const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w700)),
                     ),
                   ),
                 ],
@@ -129,32 +126,51 @@ class _ClubPageState extends State<ClubPage> {
                         title: tr('Joylar topilmadi'),
                         subtitle: tr("Sozlamalarda yangi joy qo'shing"),
                       )
-                    : SingleChildScrollView(
-                        child: Wrap(
-                          spacing: 14,
-                          runSpacing: 14,
-                          children: filtered.map((resource) {
-                            final session =
-                                sessionByResource['${resource['id']}'];
-                            final reservation =
-                                reservationByResource['${resource['id']}'];
-                            return SizedBox(
-                              width: 300,
-                              height: 300,
-                              child: _ResourceCard(
-                                resource: resource,
-                                session: session,
-                                reservation: reservation,
-                                tariffs: tariffs,
-                                customers: customers,
-                                allResources: resources,
-                                sessionByResource: sessionByResource,
-                                controller: widget.controller,
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
+                    : LayoutBuilder(builder: (context, box) {
+                        // As many ~300px cards per row as fit, stretched to
+                        // fill it; one full-width card on a phone.
+                        const gap = 14.0;
+                        final cols = ((box.maxWidth + gap) / (286 + gap))
+                            .floor()
+                            .clamp(1, 12);
+                        final cardWidth =
+                            ((box.maxWidth - gap * (cols - 1)) / cols)
+                                .clamp(0.0, 360.0);
+                        return SingleChildScrollView(
+                          child: Wrap(
+                            spacing: 14,
+                            runSpacing: 14,
+                            children: filtered.map((resource) {
+                              final session =
+                                  sessionByResource['${resource['id']}'];
+                              final reservation =
+                                  reservationByResource['${resource['id']}'];
+                              // At least 300 tall like before, taller when a
+                              // card has more to show (prepaid timer, bigger
+                              // system font) instead of clipping it.
+                              return SizedBox(
+                                width: cardWidth,
+                                child: ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(minHeight: 300),
+                                  child: IntrinsicHeight(
+                                    child: _ResourceCard(
+                                      resource: resource,
+                                      session: session,
+                                      reservation: reservation,
+                                      tariffs: tariffs,
+                                      customers: customers,
+                                      allResources: resources,
+                                      sessionByResource: sessionByResource,
+                                      controller: widget.controller,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        );
+                      }),
               ),
             ],
           );
@@ -183,7 +199,7 @@ class _Filter extends StatelessWidget {
         minimumSize: const Size(0, 34),
         padding: const EdgeInsets.symmetric(horizontal: 14),
         textStyle:
-            const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+            appFont(const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -276,7 +292,8 @@ class _ActiveBodyState extends State<_ActiveBody> {
       final pausedAt =
           DateTime.tryParse('${widget.session['pause_started_at']}');
       if (pausedAt != null) {
-        seconds -= DateTime.now().toUtc().difference(pausedAt.toUtc()).inSeconds;
+        seconds -=
+            DateTime.now().toUtc().difference(pausedAt.toUtc()).inSeconds;
       }
     }
     return seconds < 0 ? 0 : seconds;
@@ -313,7 +330,9 @@ class _ActiveBodyState extends State<_ActiveBody> {
       children: [
         _StatusPill(
           label: tr(_paused ? 'PAUZA' : 'O\'YIN BORMOQDA'),
-          background: _paused ? VColors.orange.withValues(alpha: .16) : VColors.greenSoft,
+          background: _paused
+              ? VColors.orange.withValues(alpha: .16)
+              : VColors.greenSoft,
           foreground: _paused ? VColors.orange : VColors.green,
         ),
         if (customer is Map) ...[
@@ -330,10 +349,7 @@ class _ActiveBodyState extends State<_ActiveBody> {
         ],
         const Spacer(),
         Row(children: [
-          Text(
-              LocaleController.instance.isRu
-                  ? 'с $_clock'
-                  : '$_clock dan',
+          Text(LocaleController.instance.isRu ? 'с $_clock' : '$_clock dan',
               style: TextStyle(color: VColors.subtle, fontSize: 12)),
           const SizedBox(width: 8),
           _StatusPill(
@@ -390,8 +406,8 @@ class _ActiveBodyState extends State<_ActiveBody> {
                 foregroundColor: VColors.ink,
                 side: BorderSide(color: VColors.line),
                 minimumSize: const Size(0, 46),
-                textStyle: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w900),
+                textStyle: appFont(
+                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
               ),
             ),
           ),
@@ -406,8 +422,8 @@ class _ActiveBodyState extends State<_ActiveBody> {
                 foregroundColor: VColors.green,
                 side: BorderSide(color: VColors.green),
                 minimumSize: const Size(0, 46),
-                textStyle: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w900),
+                textStyle: appFont(
+                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
               ),
             ),
           ),
@@ -467,8 +483,7 @@ class _AmountStat extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: TextStyle(color: VColors.subtle, fontSize: 11)),
+          Text(label, style: TextStyle(color: VColors.subtle, fontSize: 11)),
           const SizedBox(height: 2),
           Text(money(value),
               style: TextStyle(
@@ -550,9 +565,8 @@ class _ResourceCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: const BorderRadius.all(Radius.circular(16)),
         side: BorderSide(
-          color: active
-              ? (paused ? VColors.orange : VColors.green)
-              : VColors.line,
+          color:
+              active ? (paused ? VColors.orange : VColors.green) : VColors.line,
           width: active ? 1.5 : 1,
         ),
       ),
@@ -584,8 +598,7 @@ class _ResourceCard extends StatelessWidget {
                             fontSize: 19, fontWeight: FontWeight.w900)),
                   ),
                   Icon(Icons.power_settings_new,
-                      size: 19,
-                      color: active ? VColors.green : VColors.subtle),
+                      size: 19, color: active ? VColors.green : VColors.subtle),
                 ],
               ),
               const SizedBox(height: 10),
@@ -621,7 +634,8 @@ class _ResourceCard extends StatelessWidget {
                         style: TextStyle(color: VColors.subtle, fontSize: 13)),
                   const SizedBox(height: 6),
                 ],
-                Text('${money(tariff is Map ? tariff['price_per_hour'] : 0)}/${tr('soat')}',
+                Text(
+                    '${money(tariff is Map ? tariff['price_per_hour'] : 0)}/${tr('soat')}',
                     style: TextStyle(
                         color: VColors.muted,
                         fontSize: 17,
@@ -632,8 +646,9 @@ class _ResourceCard extends StatelessWidget {
                 Expanded(
                   child: _ActiveBody(
                     session: session!,
-                    tariff:
-                        tariff is Map ? Map<String, dynamic>.from(tariff) : null,
+                    tariff: tariff is Map
+                        ? Map<String, dynamic>.from(tariff)
+                        : null,
                     familyLabel: familyLabel,
                     onPause: () => _pause(context),
                     onResume: () => _resume(context),
@@ -675,6 +690,7 @@ class _ResourceCard extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (c) => AlertDialog(
+        scrollable: true,
         title: Text(tr('Vaqt tugadi')),
         content: Text(LocaleController.instance.isRu
             ? 'Время, назначенное для «${resource['name']}», истекло. Продолжить или завершить?'
@@ -716,13 +732,15 @@ class _ResourceCard extends StatelessWidget {
 
     if (action == 'continue') {
       final tariff = resource['tariffs'];
-      final pricePerHour = (tariff is Map ? tariff['price_per_hour'] as num? : null)
-              ?.toDouble() ??
-          0;
+      final pricePerHour =
+          (tariff is Map ? tariff['price_per_hour'] as num? : null)
+                  ?.toDouble() ??
+              0;
       final amountCtrl = TextEditingController();
       final ok = await showDialog<bool>(
         context: context,
         builder: (c) => AlertDialog(
+          scrollable: true,
           title: Text(tr('Qo\'shimcha vaqt')),
           content: TextField(
             controller: amountCtrl,
@@ -775,6 +793,7 @@ class _ResourceCard extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
+        scrollable: true,
         title: Text(tr('Yangi raund')),
         content: TextField(
           controller: noteCtrl,
@@ -814,6 +833,7 @@ class _ResourceCard extends StatelessWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
+          scrollable: true,
           title: Text(
               '${LocaleController.instance.isRu ? 'Запуск' : 'Ishga tushirish'} — ${resource['name']}'),
           content: SizedBox(
@@ -822,7 +842,8 @@ class _ResourceCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(tr('Mijoz'), style: TextStyle(color: VColors.muted, fontSize: 13)),
+                Text(tr('Mijoz'),
+                    style: TextStyle(color: VColors.muted, fontSize: 13)),
                 const SizedBox(height: 6),
                 SizedBox(
                   width: double.infinity,
@@ -833,7 +854,8 @@ class _ResourceCard extends StatelessWidget {
                       final c = customers.firstWhere((c) => '${c['id']}' == id);
                       setState(() {
                         customerId = id;
-                        customerLabel = '${c['full_name'] ?? c['phone'] ?? 'Mijoz'}';
+                        customerLabel =
+                            '${c['full_name'] ?? c['phone'] ?? 'Mijoz'}';
                       });
                     },
                     icon: const Icon(Icons.person_outline_rounded),
@@ -842,6 +864,7 @@ class _ResourceCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: tariffId,
                   decoration: InputDecoration(labelText: tr('Tarif')),
                   items: tariffs
@@ -938,8 +961,9 @@ class _ResourceCard extends StatelessWidget {
     final sessionId = '${session!['id']}';
     final orderId = session!['order_id'];
     final isPaused = session!['status'] == 'PAUSED';
-    final familyLabel =
-        resource['resource_types'] is Map ? '${resource['resource_types']['family']}' : '';
+    final familyLabel = resource['resource_types'] is Map
+        ? '${resource['resource_types']['family']}'
+        : '';
 
     // The card on the hall grid (_ActiveBody._amount) computes the live time
     // charge from banked_time_amount + price_per_hour * elapsed seconds --
@@ -998,8 +1022,7 @@ class _ResourceCard extends StatelessWidget {
                     (order?['items_amount'] as num?)?.toInt() ?? 0;
                 final discountAmount =
                     (order?['discount_amount'] as num?)?.toInt() ?? 0;
-                final totalAmount =
-                    timeAmount + itemsAmount - discountAmount;
+                final totalAmount = timeAmount + itemsAmount - discountAmount;
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1030,21 +1053,20 @@ class _ResourceCard extends StatelessWidget {
                             children: [
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(durationLabel,
                                         style: const TextStyle(
                                             fontWeight: FontWeight.w900,
                                             fontSize: 28)),
                                     const SizedBox(height: 4),
-                                    Text(tr(familyLabel == 'BILLIARD'
+                                    Text(
+                                        tr(familyLabel == 'BILLIARD'
                                             ? 'Bilyard'
                                             : familyLabel == 'PLAYSTATION'
                                                 ? 'PlayStation'
                                                 : ''),
-                                        style:
-                                            TextStyle(color: VColors.muted)),
+                                        style: TextStyle(color: VColors.muted)),
                                   ],
                                 ),
                               ),
@@ -1100,7 +1122,8 @@ class _ResourceCard extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(dialogContext, 'products'),
+                        onPressed: () =>
+                            Navigator.pop(dialogContext, 'products'),
                         icon: const Icon(Icons.shopping_cart_outlined),
                         label: Text(tr('Tovar qo\'shish')),
                       ),
@@ -1124,7 +1147,8 @@ class _ResourceCard extends StatelessWidget {
                           icon: Icon(isPaused
                               ? Icons.play_arrow_rounded
                               : Icons.pause_rounded),
-                          label: Text(tr(isPaused ? 'Davom ettirish' : 'Pauza')),
+                          label:
+                              Text(tr(isPaused ? 'Davom ettirish' : 'Pauza')),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1142,8 +1166,7 @@ class _ResourceCard extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: () =>
-                            Navigator.pop(dialogContext, 'finish'),
+                        onPressed: () => Navigator.pop(dialogContext, 'finish'),
                         icon: const Icon(Icons.point_of_sale_rounded),
                         label: Text(tr('Yakunlash va to\'lash')),
                       ),
@@ -1197,6 +1220,7 @@ class _ResourceCard extends StatelessWidget {
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
+            scrollable: true,
             title: Text(tr('Seansni bekor qilish')),
             content: Text(tr(
                 'Seans bekor qilinadi, hisob yopiladi. Bu amalni qaytarib bo\'lmaydi.')),

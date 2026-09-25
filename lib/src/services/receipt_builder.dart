@@ -137,7 +137,8 @@ Uint8List buildOrderReceipt({
         final mins = l.endedAt!.difference(l.startedAt!).inMinutes;
         b.text(_twoColumn(
             '${_clock(l.startedAt!)} - ${_clock(l.endedAt!)} ($mins min)',
-            money(l.amount), width));
+            money(l.amount),
+            width));
       } else {
         final qtyPrefix = l.quantity != null ? '${l.quantity} x ' : '';
         b.text(_twoColumn('$qtyPrefix${l.label}', money(l.amount), width));
@@ -167,7 +168,8 @@ Uint8List buildOrderReceipt({
   b.divider(width);
   if (discount != null && discount > 0) {
     b
-      ..text(_twoColumn('Oraliq summa', money(subtotal ?? total + discount), width))
+      ..text(_twoColumn(
+          'Oraliq summa', money(subtotal ?? total + discount), width))
       ..text(_twoColumn('Chegirma', '-${money(discount)}', width));
   }
   b
@@ -189,7 +191,9 @@ Uint8List buildOrderReceipt({
       b.divider(width);
       final caption = club['receipt_qr_caption'] as String?;
       if (caption != null && caption.trim().isNotEmpty) b.text(caption);
-      b.feed(1)..qrCode(qrUrl)..feed(1);
+      b.feed(1)
+        ..qrCode(qrUrl)
+        ..feed(1);
     }
   }
 
@@ -234,8 +238,7 @@ Uint8List buildShiftXReport({
   row('Xarajatlar', totals['expenses']);
   b
     ..bold(true)
-    ..text(_twoColumn(
-        'Sof foyda', money(totals['net_profit']), width))
+    ..text(_twoColumn('Sof foyda', money(totals['net_profit']), width))
     ..bold(false)
     ..divider(width)
     ..align(EscAlign.center)

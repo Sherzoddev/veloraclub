@@ -11,7 +11,7 @@ class RelayPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.all(30),
+        padding: pagePadding(context),
         child: Column(
           children: [
             PageHeader(
@@ -61,15 +61,24 @@ class RelayPage extends StatelessWidget {
                                     size: 28,
                                   ),
                                   const SizedBox(width: 12),
-                                  Text('${device['name']}',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 19)),
-                                  const SizedBox(width: 12),
-                                  Pill('${device['provider']}',
-                                      color: VColors.field,
-                                      foreground: VColors.muted),
-                                  const Spacer(),
+                                  Expanded(
+                                    child: Wrap(
+                                      spacing: 12,
+                                      runSpacing: 6,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        Text('${device['name']}',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 19)),
+                                        Pill('${device['provider']}',
+                                            color: VColors.field,
+                                            foreground: VColors.muted),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
                                   Text(
                                     '${device['status'] ?? 'OFFLINE'}',
                                     style: TextStyle(
@@ -91,7 +100,10 @@ class RelayPage extends StatelessWidget {
                                         .map((resource) => _RelayControl(
                                               resource: resource,
                                               onCommand: (on) => _command(
-                                                  context, device, resource, on),
+                                                  context,
+                                                  device,
+                                                  resource,
+                                                  on),
                                             ))
                                         .toList(),
                                   ),
@@ -133,24 +145,31 @@ class _RelayControl extends StatelessWidget {
   final ValueChanged<bool> onCommand;
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: VColors.field,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('${resource['name']}'),
-            const SizedBox(width: 10),
-            OutlinedButton(
-                onPressed: () => onCommand(true), child: const Text('Yoqish')),
-            const SizedBox(width: 5),
-            OutlinedButton(
-                onPressed: () => onCommand(false),
-                child: const Text('O\'chirish')),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    // Phone: one channel per full-width line, name left, buttons right.
+    final compact = isCompactWidth(context);
+    final name = Text('${resource['name']}',
+        maxLines: 2, overflow: TextOverflow.ellipsis);
+    return Container(
+      width: compact ? double.infinity : null,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: VColors.field,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: compact ? MainAxisSize.max : MainAxisSize.min,
+        children: [
+          if (compact) Expanded(child: name) else name,
+          const SizedBox(width: 10),
+          OutlinedButton(
+              onPressed: () => onCommand(true), child: const Text('Yoqish')),
+          const SizedBox(width: 5),
+          OutlinedButton(
+              onPressed: () => onCommand(false),
+              child: const Text('O\'chirish')),
+        ],
+      ),
+    );
+  }
 }

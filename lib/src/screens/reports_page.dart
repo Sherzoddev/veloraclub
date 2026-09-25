@@ -16,7 +16,7 @@ const _red = Color(0xFFE5484D);
 const _teal = Color(0xFF14B8A6);
 
 final _numFormat = NumberFormat('#,##0', 'en_US');
-String _num(num v) => _numFormat.format(v.round()).replaceAll(',', ' ');
+String _num(num v) => _numFormat.format(v.round()).replaceAll(',', '\u00a0');
 
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key, required this.controller});
@@ -117,7 +117,7 @@ class _ReportsPageState extends State<ReportsPage> {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(26, 20, 24, 20),
+        padding: pagePadding(context),
         child: AsyncPane<_ReportData>(
           future: _load(),
           builder: (context, data) => LayoutBuilder(
@@ -253,7 +253,7 @@ class _ReportsPageState extends State<ReportsPage> {
         change: _change(n(r, 'products_qty'), n(p, 'products_qty')),
       ),
     ];
-    return _grid(cards, width, width >= 1250 ? 5 : 3, 14);
+    return _grid(cards, width, width >= 1250 ? 5 : 3, 14, minItem: 150);
   }
 
   int? _change(num current, num previous) {
@@ -282,7 +282,8 @@ class _ReportsPageState extends State<ReportsPage> {
     final cards = [
       _ChartCard(
         title: tr(revenueTitle),
-        child: _LineChart(values: revenue, labels: labels, color: VColors.green),
+        child:
+            _LineChart(values: revenue, labels: labels, color: VColors.green),
       ),
       _ChartCard(
         title: tr('Sotuvlar tarkibi'),
@@ -324,8 +325,34 @@ class _ReportsPageState extends State<ReportsPage> {
     return switch (_bucket) {
       'hour' => '${d.hour.toString().padLeft(2, '0')}:00',
       'month' => (LocaleController.instance.isRu
-          ? const ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек']
-          : const ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn', 'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek'])[d.month - 1],
+          ? const [
+              'Янв',
+              'Фев',
+              'Мар',
+              'Апр',
+              'Май',
+              'Июн',
+              'Июл',
+              'Авг',
+              'Сен',
+              'Окт',
+              'Ноя',
+              'Дек'
+            ]
+          : const [
+              'Yan',
+              'Fev',
+              'Mar',
+              'Apr',
+              'May',
+              'Iyn',
+              'Iyl',
+              'Avg',
+              'Sen',
+              'Okt',
+              'Noy',
+              'Dek'
+            ])[d.month - 1],
       _ => DateFormat('dd.MM').format(d),
     };
   }
@@ -344,18 +371,26 @@ class _ReportsPageState extends State<ReportsPage> {
           value: _num(n('time_billiard') + n('time_playstation')),
           color: _blue),
       _MiniStat(
-          label: tr('Bar foydasi'), value: _num(n('bar_profit')), color: VColors.green),
-      _MiniStat(label: tr('Xarajatlar'), value: _num(n('expenses')), color: _red),
+          label: tr('Bar foydasi'),
+          value: _num(n('bar_profit')),
+          color: VColors.green),
+      _MiniStat(
+          label: tr('Xarajatlar'), value: _num(n('expenses')), color: _red),
       _MiniStat(
           label: tr('Hozirgi bandlik'),
           value: '$busy / ${data.resources.length}',
           color: _orange,
           progress: data.resources.isEmpty ? 0 : busy / data.resources.length),
     ];
-    return _grid(cards, width, 4, 14);
+    return _grid(cards, width, 4, 14, minItem: 150);
   }
 
-  Widget _grid(List<Widget> children, double width, int cols, double gap) {
+  /// Up to [cols] per row, but never narrower than [minItem] -- a phone
+  /// gets fewer, wider cards instead of squeezed ones.
+  Widget _grid(List<Widget> children, double width, int cols, double gap,
+      {double minItem = 260}) {
+    final fit = ((width + gap) / (minItem + gap)).floor();
+    cols = cols.clamp(1, fit < 1 ? 1 : fit);
     final itemWidth = (width - gap * (cols - 1)) / cols;
     return Wrap(
       spacing: gap,
@@ -391,7 +426,8 @@ TextStyle _capsStyle() => TextStyle(
     letterSpacing: .8);
 
 class _ShiftCard extends StatelessWidget {
-  const _ShiftCard({required this.label, required this.value, required this.sub});
+  const _ShiftCard(
+      {required this.label, required this.value, required this.sub});
   final String label, value, sub;
 
   @override
@@ -473,7 +509,8 @@ class _KpiCard extends StatelessWidget {
                 Container(
                   width: 44,
                   height: 44,
-                  decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                  decoration:
+                      BoxDecoration(color: color, shape: BoxShape.circle),
                   child: Icon(icon, color: Colors.white, size: 21),
                 ),
                 const Spacer(),
@@ -556,7 +593,8 @@ class _Empty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Center(
-      child: Text(tr("Ma'lumot yo'q"), style: TextStyle(color: VColors.subtle)));
+      child:
+          Text(tr("Ma'lumot yo'q"), style: TextStyle(color: VColors.subtle)));
 }
 
 class _LineChart extends StatelessWidget {
@@ -605,14 +643,16 @@ class _LinePainter extends CustomPainter {
   final Color color, gridColor, textColor;
 
   TextPainter _text(String s) => TextPainter(
-        text: TextSpan(text: s, style: TextStyle(color: textColor, fontSize: 10.5)),
+        text: TextSpan(
+            text: s, style: TextStyle(color: textColor, fontSize: 10.5)),
         textDirection: TextDirection.ltr,
       )..layout();
 
   @override
   void paint(Canvas canvas, Size size) {
     const left = 58.0, bottom = 22.0, top = 6.0, right = 10.0;
-    final chart = Rect.fromLTRB(left, top, size.width - right, size.height - bottom);
+    final chart =
+        Rect.fromLTRB(left, top, size.width - right, size.height - bottom);
     final maxValue = _niceCeil(values.reduce(math.max));
     const gridLines = 4;
 
@@ -623,7 +663,8 @@ class _LinePainter extends CustomPainter {
       final y = chart.bottom - chart.height * i / gridLines;
       canvas.drawLine(Offset(chart.left, y), Offset(chart.right, y), grid);
       final label = _text(_num(maxValue * i / gridLines));
-      label.paint(canvas, Offset(chart.left - label.width - 8, y - label.height / 2));
+      label.paint(
+          canvas, Offset(chart.left - label.width - 8, y - label.height / 2));
     }
 
     final n = values.length;
@@ -702,9 +743,8 @@ class _Composition extends StatelessWidget {
         MapEntry(tr('${r['label']}'), ((r['amount'] as num?) ?? 0).toDouble()),
     ];
     if (rows.length > maxSegments) {
-      final rest = rows
-          .skip(maxSegments)
-          .fold<double>(0, (s, r) => s + ((r['amount'] as num?) ?? 0).toDouble());
+      final rest = rows.skip(maxSegments).fold<double>(
+          0, (s, r) => s + ((r['amount'] as num?) ?? 0).toDouble());
       segments.add(MapEntry(tr('Boshqa'), rest));
     }
     final sum = segments.fold<double>(0, (s, e) => s + e.value);
@@ -787,7 +827,8 @@ class _Composition extends StatelessWidget {
 }
 
 class _DonutPainter extends CustomPainter {
-  _DonutPainter({required this.values, required this.colors, required this.track});
+  _DonutPainter(
+      {required this.values, required this.colors, required this.track});
   final List<double> values;
   final List<Color> colors;
   final Color track;
@@ -807,7 +848,11 @@ class _DonutPainter extends CustomPainter {
     var start = -math.pi / 2;
     for (var i = 0; i < values.length; i++) {
       final sweep = values[i] / sum * math.pi * 2;
-      canvas.drawArc(rect, start, sweep, false,
+      canvas.drawArc(
+          rect,
+          start,
+          sweep,
+          false,
           Paint()
             ..style = PaintingStyle.stroke
             ..strokeWidth = stroke
@@ -833,8 +878,8 @@ class _StockList extends StatelessWidget {
         .toList()
       ..sort((a, b) => ((a['stock_quantity'] as num?) ?? 0)
           .compareTo((b['stock_quantity'] as num?) ?? 0));
-    final maxStock = tracked.fold<double>(
-        1, (m, p) => math.max(m, ((p['stock_quantity'] as num?) ?? 0).toDouble()));
+    final maxStock = tracked.fold<double>(1,
+        (m, p) => math.max(m, ((p['stock_quantity'] as num?) ?? 0).toDouble()));
     final shown = tracked.take(5).toList();
 
     return Column(
@@ -860,8 +905,8 @@ class _StockList extends StatelessWidget {
               side: BorderSide(color: VColors.line),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
-              textStyle:
-                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              textStyle: appFont(
+                  const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
             ),
             child: Text(tr("Skladga o'tish")),
           ),
@@ -935,8 +980,8 @@ class _TopProducts extends StatelessWidget {
                       ),
                       FractionallySizedBox(
                         widthFactor: math
-                            .max(.08,
-                                ((r['revenue'] as num?) ?? 0) / maxRevenue)
+                            .max(
+                                .08, ((r['revenue'] as num?) ?? 0) / maxRevenue)
                             .toDouble()
                             .clamp(0.0, 1.0),
                         child: Container(

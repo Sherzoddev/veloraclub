@@ -34,7 +34,9 @@ class EscPosBuilder {
   Uint8List build() => _out.toBytes();
 
   EscPosBuilder text(String value, {bool newline = true}) {
-    _out.add(_cp866.encode(value));
+    // money() keeps sums on one line on screen with no-break spaces; the
+    // printer's code page has no such character.
+    _out.add(_cp866.encode(value.replaceAll('\u00a0', ' ')));
     if (newline) _out.add([0x0A]);
     return this;
   }
@@ -64,8 +66,7 @@ class EscPosBuilder {
     return this;
   }
 
-  EscPosBuilder divider(int width, [String char = '-']) =>
-      text(char * width);
+  EscPosBuilder divider(int width, [String char = '-']) => text(char * width);
 
   EscPosBuilder feed([int lines = 1]) {
     _out.add([0x1B, 0x64, lines]);
@@ -88,7 +89,8 @@ class EscPosBuilder {
     final storeLen = payload.length + 3;
 
     void gsk(List<int> body) {
-      _out.add([0x1D, 0x28, 0x6B, body.length & 0xFF, (body.length >> 8) & 0xFF]);
+      _out.add(
+          [0x1D, 0x28, 0x6B, body.length & 0xFF, (body.length >> 8) & 0xFF]);
       _out.add(body);
     }
 
@@ -96,9 +98,14 @@ class EscPosBuilder {
     gsk([0x31, 0x43, moduleSize]); // module size
     gsk([0x31, 0x45, 0x31]); // error correction: M
     _out.add([
-      0x1D, 0x28, 0x6B,
-      storeLen & 0xFF, (storeLen >> 8) & 0xFF,
-      0x31, 0x50, 0x30,
+      0x1D,
+      0x28,
+      0x6B,
+      storeLen & 0xFF,
+      (storeLen >> 8) & 0xFF,
+      0x31,
+      0x50,
+      0x30,
       ...payload,
     ]); // store data
     gsk([0x31, 0x51, 0x30]); // print stored data

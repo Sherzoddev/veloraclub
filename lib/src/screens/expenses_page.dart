@@ -18,7 +18,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
 
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.all(30),
+      padding: pagePadding(context),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         PageHeader(title: 'Xarajatlar', actions: [
           FilledButton.icon(
@@ -49,8 +49,8 @@ class _ExpensesPageState extends State<ExpensesPage> {
                 ChoiceChip(
                   label: Text('${c['name']}'),
                   selected: category == '${c['id']}',
-                  onSelected: (_) =>
-                      setState(() => category = category == '${c['id']}' ? 'ALL' : '${c['id']}'),
+                  onSelected: (_) => setState(() => category =
+                      category == '${c['id']}' ? 'ALL' : '${c['id']}'),
                 ),
               ActionChip(
                 avatar: const Icon(Icons.add, size: 16),
@@ -104,68 +104,62 @@ class _ExpensesPageState extends State<ExpensesPage> {
                                             .replaceFirst('#', 'FF'),
                                         radix: 16))
                                     : VColors.line,
-                                width: cat is Map && cat['color'] != null
-                                    ? 2
-                                    : 1),
+                                width:
+                                    cat is Map && cat['color'] != null ? 2 : 1),
                           ),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 12),
-                            child: Row(children: [
-                              Expanded(
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(title,
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 16,
-                                                decoration: reversed
-                                                    ? TextDecoration
-                                                        .lineThrough
-                                                    : null)),
-                                        const SizedBox(height: 3),
-                                        Text(subParts.join(' · '),
-                                            style: TextStyle(
-                                                color: VColors.subtle,
-                                                fontSize: 12.5)),
-                                        if (reversed)
-                                          Padding(
-                                            padding: const EdgeInsets.only(
-                                                top: 3),
-                                            child: Text('Bekor qilingan',
-                                                style: TextStyle(
-                                                    color: VColors.red,
-                                                    fontSize: 12,
-                                                    fontWeight:
-                                                        FontWeight.w700)),
-                                          ),
-                                      ])),
-                              const SizedBox(width: 14),
-                              Text(
-                                  '${(e['amount'] as num? ?? 0) < 0 ? '+' : '-'}${money((e['amount'] as num? ?? 0).abs())}',
-                                  style: TextStyle(
-                                      // Reversal rows are also flagged REVERSED (so both
-                                      // the original and its negative counter-entry read
-                                      // as "cancelled" here) -- pre-existing behavior,
-                                      // not something this visual pass changes.
-                                      color: VColors.red,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 16)),
-                              if (!reversed) ...[
-                                const SizedBox(width: 12),
-                                OutlinedButton(
-                                    onPressed: () => _reverse(context, e),
-                                    style: OutlinedButton.styleFrom(
-                                        minimumSize: const Size(0, 34),
-                                        foregroundColor: VColors.red,
-                                        side: BorderSide(
-                                            color: VColors.red
-                                                .withValues(alpha: .4))),
-                                    child: const Text('Bekor qilish')),
-                              ],
-                            ]),
+                            child: AdaptiveRow(
+                                content: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(title,
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 16,
+                                              decoration: reversed
+                                                  ? TextDecoration.lineThrough
+                                                  : null)),
+                                      const SizedBox(height: 3),
+                                      Text(subParts.join(' · '),
+                                          style: TextStyle(
+                                              color: VColors.subtle,
+                                              fontSize: 12.5)),
+                                      if (reversed)
+                                        Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 3),
+                                          child: Text('Bekor qilingan',
+                                              style: TextStyle(
+                                                  color: VColors.red,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700)),
+                                        ),
+                                    ]),
+                                actions: [
+                                  Text(
+                                      '${(e['amount'] as num? ?? 0) < 0 ? '+' : '-'}${money((e['amount'] as num? ?? 0).abs())}',
+                                      style: TextStyle(
+                                          // Reversal rows are also flagged REVERSED (so both
+                                          // the original and its negative counter-entry read
+                                          // as "cancelled" here) -- pre-existing behavior,
+                                          // not something this visual pass changes.
+                                          color: VColors.red,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16)),
+                                  if (!reversed)
+                                    OutlinedButton(
+                                        onPressed: () => _reverse(context, e),
+                                        style: OutlinedButton.styleFrom(
+                                            minimumSize: const Size(0, 34),
+                                            foregroundColor: VColors.red,
+                                            side: BorderSide(
+                                                color: VColors.red
+                                                    .withValues(alpha: .4))),
+                                        child: const Text('Bekor qilish')),
+                                ]),
                           ),
                         ),
                       );
@@ -179,6 +173,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
+        scrollable: true,
         title: const Text('Yangi toifa'),
         content: TextField(
             controller: name,
@@ -195,7 +190,9 @@ class _ExpensesPageState extends State<ExpensesPage> {
       ),
     );
     if (ok != true || name.text.trim().isEmpty) return;
-    await widget.controller.repository.client.from('expense_categories').insert({
+    await widget.controller.repository.client
+        .from('expense_categories')
+        .insert({
       'club_id': widget.controller.context!.clubId,
       'name': name.text.trim(),
       'active': true,
@@ -220,6 +217,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
         context: context,
         builder: (context) => StatefulBuilder(
             builder: (context, setState) => AlertDialog(
+                    scrollable: true,
                     title: const Text('Yangi xarajat'),
                     content: SizedBox(
                         width: 460,
@@ -248,8 +246,8 @@ class _ExpensesPageState extends State<ExpensesPage> {
                                     child: ChoiceChip(
                                         label: Text('${e['name']}'),
                                         selected: cat == '${e['id']}',
-                                        onSelected: (_) => setState(
-                                            () => cat = '${e['id']}')),
+                                        onSelected: (_) =>
+                                            setState(() => cat = '${e['id']}')),
                                   ),
                               ],
                             ),
@@ -263,6 +261,7 @@ class _ExpensesPageState extends State<ExpensesPage> {
                                   labelText: 'Summa (so\'m)')),
                           const SizedBox(height: 14),
                           DropdownButtonFormField<String?>(
+                              isExpanded: true,
                               initialValue: method,
                               decoration: const InputDecoration(
                                   labelText: 'Pul qayerdan'),
