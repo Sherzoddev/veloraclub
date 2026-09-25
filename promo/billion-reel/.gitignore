@@ -1,0 +1,7 @@
+node_modules/
+out/
+capture/node_modules/
+capture/out/
+*.mp4
+voice/mix.wav
+voice/music_only.wav
