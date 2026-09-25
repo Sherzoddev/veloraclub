@@ -67,11 +67,26 @@ function zonedTimeToUtc(y: number, mo: number, d: number, hh: number, mm: number
   return new Date(guess - (readBack - guess));
 }
 
-function dayBoundsUtc(y: number, mo: number, d: number, timeZone: string): { from: string; to: string } {
-  const from = zonedTimeToUtc(y, mo, d, 0, 0, timeZone);
+// Reports cover a working day: 07:00 → 07:00 the next morning, in the club's
+// zone, whatever shifts were opened or closed in between. Shifts here open at
+// any hour (and sometimes twice for a few seconds), so "the shift opened that
+// day" split a night in odd places; a fixed 07:00 cut never does.
+const DAY_START_HOUR = 7;
+
+function workDayBounds(y: number, mo: number, d: number, timeZone: string): { from: string; to: string } {
+  const from = zonedTimeToUtc(y, mo, d, DAY_START_HOUR, 0, timeZone);
   const next = new Date(Date.UTC(y, mo - 1, d + 1));
-  const to = zonedTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, timeZone);
+  const to = zonedTimeToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), DAY_START_HOUR, 0, timeZone);
   return { from: from.toISOString(), to: to.toISOString() };
+}
+
+/// The working day "now" belongs to: before 07:00 that's still yesterday's.
+function currentWorkDay(timeZone: string): { y: number; mo: number; d: number } {
+  const t = todayInZone(timeZone);
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone, hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  if (hour >= DAY_START_HOUR) return t;
+  const prev = new Date(Date.UTC(t.y, t.mo - 1, t.d - 1));
+  return { y: prev.getUTCFullYear(), mo: prev.getUTCMonth() + 1, d: prev.getUTCDate() };
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -93,7 +108,9 @@ const MONTH_NAMES = [
 /// single day for the day report, "from", then "to" for a custom range) —
 /// the month-nav arrows re-render the same mode by checking pending state,
 /// not by carrying it in their own callback data.
-function buildCalendar(y: number, mo: number, dayPrefix = "calday:") {
+/// Days after `last` (the newest day that can have a report) are left blank,
+/// and so is the "next month" arrow once that month is still ahead.
+function buildCalendar(y: number, mo: number, dayPrefix = "calday:", last?: { y: number; mo: number; d: number }) {
   const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   const firstWeekday = (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7;
   const blank = { text: " ", callback_data: "noop" };
@@ -104,7 +121,8 @@ function buildCalendar(y: number, mo: number, dayPrefix = "calday:") {
   ];
   let week = new Array(firstWeekday).fill(blank);
   for (let d = 1; d <= daysInMonth; d++) {
-    week.push({ text: String(d), callback_data: `${dayPrefix}${isoDate(y, mo, d)}` });
+    const future = last && isoDate(y, mo, d) > isoDate(last.y, last.mo, last.d);
+    week.push(future ? blank : { text: String(d), callback_data: `${dayPrefix}${isoDate(y, mo, d)}` });
     if (week.length === 7) {
       rows.push(week);
       week = [];
@@ -114,17 +132,18 @@ function buildCalendar(y: number, mo: number, dayPrefix = "calday:") {
 
   const prev = mo === 1 ? { y: y - 1, mo: 12 } : { y, mo: mo - 1 };
   const next = mo === 12 ? { y: y + 1, mo: 1 } : { y, mo: mo + 1 };
+  const nextIsFuture = last && isoDate(next.y, next.mo, 1) > isoDate(last.y, last.mo, last.d);
   rows.push([
     { text: "◂", callback_data: `calnav:${prev.y}-${pad(prev.mo)}` },
     { text: "Назад", callback_data: "menu" },
-    { text: "▸", callback_data: `calnav:${next.y}-${pad(next.mo)}` },
+    nextIsFuture ? blank : { text: "▸", callback_data: `calnav:${next.y}-${pad(next.mo)}` },
   ]);
   return { inline_keyboard: rows };
 }
 
 const MENU = {
   today: "📊 Сегодня",
-  period: "🕗 За период",
+  period: "🗓 Отчёт за день",
   chart: "📈 График",
   top: "🏆 Топ товаров",
   stock: "📦 Остатки",
@@ -291,10 +310,48 @@ function reportExcelRows(report: any, top: any[], cfg: OwnerBotConfig): unknown[
   ];
 }
 
-// Reports are per cash shift, not per calendar day: a shift opened on the
-// 24th in the evening and closed on the 25th in the morning is one report
-// (opened_at → closed_at, or → now while it's still open), never cut in half
-// at midnight and never mixed with the previous shift's numbers.
+const dayCalendar = (y: number, mo: number, timeZone: string) =>
+  buildCalendar(y, mo, "calday:", currentWorkDay(timeZone));
+
+async function sendDayPicker(cfg: OwnerBotConfig, chatId: number, y: number, mo: number) {
+  await send(cfg.bot_token, chatId, "🗓 Выберите день — отчёт с 07:00 до 07:00 следующего дня:", {
+    reply_markup: dayCalendar(y, mo, cfg.timezone),
+  });
+}
+
+async function showDayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number, y: number, mo: number, d: number) {
+  const { from, to } = workDayBounds(y, mo, d, cfg.timezone);
+  const now = new Date().toISOString();
+  const again = { inline_keyboard: [[{ text: "🗓 Другой день", callback_data: `calnav:${y}-${pad(mo)}` }]] };
+  if (from > now) return void send(cfg.bot_token, chatId, `${fmtDateRu(y, mo, d)} ещё не наступил.`, { reply_markup: again });
+
+  const ongoing = to > now;
+  const { data, error } = await sb.rpc("bot_period_report", { p_club_id: cfg.club_id, p_from: from, p_to: ongoing ? now : to });
+  if (error) return void send(cfg.bot_token, chatId, `⚠️ Ошибка: ${error.message}`, { reply_markup: mainKeyboard });
+
+  const next = new Date(Date.UTC(y, mo - 1, d + 1));
+  const range = `${pad(d)}.${pad(mo)} 07:00 → ${pad(next.getUTCDate())}.${pad(next.getUTCMonth() + 1)} 07:00`;
+  const nowLabel = new Intl.DateTimeFormat("ru-RU", { timeZone: cfg.timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+    .format(new Date());
+  const text =
+    `📊 <b>Отчёт за ${fmtDateRu(y, mo, d)}</b>\n` +
+    `🕖 ${range}` +
+    (ongoing ? `\n🟢 День идёт · данные на ${nowLabel}` : "") +
+    `\n${DIVIDER}\n\n` +
+    reportBody(data, cfg);
+
+  await send(cfg.bot_token, chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📥 Скачать Excel", callback_data: `xls:${isoDate(y, mo, d)}` }],
+        [{ text: "🗓 Другой день", callback_data: `calnav:${y}-${pad(mo)}` }],
+      ],
+    },
+  });
+}
+
+// Per-shift reports: only still reached from buttons on messages sent before
+// reports switched to 07:00 → 07:00 working days.
 type ShiftRow = {
   id: string;
   status: string;
@@ -334,11 +391,6 @@ function shortDateTime(iso: string, timeZone: string) {
   }).format(new Date(iso));
 }
 
-function shiftButtonLabel(s: ShiftRow, timeZone: string) {
-  const end = s.closed_at ? shortDateTime(s.closed_at, timeZone) : "идёт";
-  return `${s.status === "OPEN" ? "🟢 " : ""}${shortDateTime(s.opened_at, timeZone)} → ${end}`;
-}
-
 function shiftHeader(s: ShiftRow, timeZone: string) {
   const { from, to } = shiftBounds(s);
   const opener = s.opener?.full_name ? ` · ${esc(s.opener.full_name)}` : "";
@@ -368,66 +420,10 @@ async function showShiftReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: 
     reply_markup: {
       inline_keyboard: [
         [{ text: "📥 Скачать Excel", callback_data: `xlsshift:${shift.id}` }],
-        [{ text: "📋 Другие смены", callback_data: "shifts" }],
+        [{ text: "🗓 Другой день", callback_data: "shiftcal" }],
       ],
     },
   });
-}
-
-// "📊 Сегодня": the shift that's open right now; when the till is closed,
-// the last shift instead of an empty "not open" dead end.
-async function showCurrentShiftReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number) {
-  const shift = await latestShift(sb, cfg.club_id);
-  if (!shift) return void send(cfg.bot_token, chatId, "Смен пока не было.", { reply_markup: mainKeyboard });
-  const note = shift.status === "OPEN" ? "" : "Сейчас смена не открыта — показана последняя.";
-  await showShiftReport(sb, cfg, chatId, shift, note);
-}
-
-async function sendShiftPicker(cfg: OwnerBotConfig, chatId: number, title: string, shifts: ShiftRow[]) {
-  await send(cfg.bot_token, chatId, title, {
-    reply_markup: {
-      inline_keyboard: [
-        ...shifts.map((s) => [{ text: shiftButtonLabel(s, cfg.timezone), callback_data: `shift:${s.id}` }]),
-        [{ text: "🗓 Выбрать день", callback_data: "shiftcal" }],
-      ],
-    },
-  });
-}
-
-async function showShiftList(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number) {
-  const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT)
-    .eq("club_id", cfg.club_id).order("opened_at", { ascending: false }).limit(10);
-  const shifts = (data ?? []) as unknown as ShiftRow[];
-  if (shifts.length === 0) return void send(cfg.bot_token, chatId, "Смен пока не было.", { reply_markup: mainKeyboard });
-  await sendShiftPicker(cfg, chatId, "📋 <b>Последние смены</b>\n\nВыберите смену:", shifts);
-}
-
-// Calendar pick = the shifts *opened* that day (the 24th → 25th shift is
-// under the 24th). One shift opens straight away; several get a picker.
-async function showShiftsForDay(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number, y: number, mo: number, d: number) {
-  const { from, to } = dayBoundsUtc(y, mo, d, cfg.timezone);
-  const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT)
-    .eq("club_id", cfg.club_id).gte("opened_at", from).lt("opened_at", to)
-    .order("opened_at", { ascending: true });
-  const shifts = (data ?? []) as unknown as ShiftRow[];
-  if (shifts.length === 1) return showShiftReport(sb, cfg, chatId, shifts[0]);
-  if (shifts.length === 0) {
-    return void send(cfg.bot_token, chatId, `${fmtDateRu(y, mo, d)} смена не открывалась.`, {
-      reply_markup: {
-        inline_keyboard: [[
-          { text: "🗓 Другой день", callback_data: `calnav:${y}-${pad(mo)}` },
-          { text: "📋 Последние смены", callback_data: "shifts" },
-        ]],
-      },
-    });
-  }
-  await sendShiftPicker(cfg, chatId, `Смены, открытые ${fmtDateRu(y, mo, d)}:`, shifts);
-}
-
-function shiftCalendar(y: number, mo: number) {
-  const cal = buildCalendar(y, mo);
-  cal.inline_keyboard.unshift([{ text: "📋 Последние смены", callback_data: "shifts" }]);
-  return cal;
 }
 
 async function sendShiftReportExcel(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number, shift: ShiftRow) {
@@ -456,10 +452,11 @@ async function sendShiftReportExcel(sb: SupabaseClient, cfg: OwnerBotConfig, cha
   );
 }
 
-// Only reached from "📥 Скачать Excel" buttons on calendar-day reports sent
-// before reports switched to shifts.
 async function sendDayReportExcel(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number, y: number, mo: number, d: number) {
-  const { from, to } = dayBoundsUtc(y, mo, d, cfg.timezone);
+  const bounds = workDayBounds(y, mo, d, cfg.timezone);
+  const now = new Date().toISOString();
+  const to = bounds.to > now ? now : bounds.to;
+  const from = bounds.from;
   const [{ data: report }, { data: top }] = await Promise.all([
     sb.rpc("bot_period_report", { p_club_id: cfg.club_id, p_from: from, p_to: to }),
     sb.rpc("bot_top_products", { p_club_id: cfg.club_id, p_from: from, p_to: to, p_limit: 100 }),
@@ -467,6 +464,7 @@ async function sendDayReportExcel(sb: SupabaseClient, cfg: OwnerBotConfig, chatI
 
   const rows: unknown[][] = [
     ["Отчёт", fmtDateRu(y, mo, d)],
+    ["Период", `${fmtDateTimeRu(from, cfg.timezone)} — ${fmtDateTimeRu(to, cfg.timezone)}`],
     [],
     ...reportExcelRows(report, top ?? [], cfg),
   ];
@@ -782,14 +780,11 @@ Deno.serve(async (req) => {
         await send(token, chatId, `🏢 <b>${cfg.club_name}</b>`, { reply_markup: mainKeyboard });
         return new Response("ok");
       }
-      if (data === "shifts") {
-        await showShiftList(sb, cfg, chatId);
-        return new Response("ok");
-      }
-      if (data === "shiftcal") {
-        const t = todayInZone(cfg.timezone);
+      // "📋 Другие смены" / "🗓 Выбрать день" on older shift reports.
+      if (data === "shifts" || data === "shiftcal") {
+        const t = currentWorkDay(cfg.timezone);
         await setPending(sb, cfg.owner_bot_id, fromId, "report_day");
-        await send(token, chatId, "Выберите день открытия смены:", { reply_markup: shiftCalendar(t.y, t.mo) });
+        await sendDayPicker(cfg, chatId, t.y, t.mo);
         return new Response("ok");
       }
       if (data.startsWith("shift:")) {
@@ -817,15 +812,15 @@ Deno.serve(async (req) => {
         const pending = await getPending(sb, cfg.owner_bot_id, fromId);
         if (pending?.action === "range_from" || pending?.action === "range_to") {
           const dayPrefix = pending.action === "range_from" ? "rfrom:" : "rto:";
-          await send(token, chatId, "Выберите день:", { reply_markup: buildCalendar(y, mo, dayPrefix) });
+          await send(token, chatId, "Выберите день:", { reply_markup: buildCalendar(y, mo, dayPrefix, todayInZone(cfg.timezone)) });
         } else {
-          await send(token, chatId, "Выберите день открытия смены:", { reply_markup: shiftCalendar(y, mo) });
+          await sendDayPicker(cfg, chatId, y, mo);
         }
         return new Response("ok");
       }
       if (data.startsWith("calday:")) {
         const [y, mo, d] = data.slice(7).split("-").map(Number);
-        await showShiftsForDay(sb, cfg, chatId, y, mo, d);
+        await showDayReport(sb, cfg, chatId, y, mo, d);
         return new Response("ok");
       }
       if (data.startsWith("xls:")) {
@@ -849,14 +844,14 @@ Deno.serve(async (req) => {
       if (data === "chart:range") {
         const t = todayInZone(cfg.timezone);
         await setPending(sb, cfg.owner_bot_id, fromId, "range_from");
-        await send(token, chatId, "Начало периода — выберите день:", { reply_markup: buildCalendar(t.y, t.mo, "rfrom:") });
+        await send(token, chatId, "Начало периода — выберите день:", { reply_markup: buildCalendar(t.y, t.mo, "rfrom:", todayInZone(cfg.timezone)) });
         return new Response("ok");
       }
       if (data.startsWith("rfrom:")) {
         const [y, mo, d] = data.slice(6).split("-").map(Number);
         await setPending(sb, cfg.owner_bot_id, fromId, "range_to", { from: isoDate(y, mo, d) });
         await send(token, chatId, `Начало: ${fmtDateRu(y, mo, d)}\nКонец периода — выберите день:`, {
-          reply_markup: buildCalendar(y, mo, "rto:"),
+          reply_markup: buildCalendar(y, mo, "rto:", todayInZone(cfg.timezone)),
         });
         return new Response("ok");
       }
@@ -960,14 +955,17 @@ Deno.serve(async (req) => {
     }
 
     switch (text) {
-      case MENU.today:
-        await showCurrentShiftReport(sb, cfg, chatId);
+      case MENU.today: {
+        const t = currentWorkDay(cfg.timezone);
+        await showDayReport(sb, cfg, chatId, t.y, t.mo, t.d);
         return new Response("ok");
-      case MENU.period: {
-        const t = todayInZone(cfg.timezone);
+      }
+      case MENU.period:
+      case "🕗 За период": { // label on keyboards sent before the rename
+        const t = currentWorkDay(cfg.timezone);
         await Promise.all([
           setPending(sb, cfg.owner_bot_id, fromId, "report_day"),
-          send(token, chatId, "Выберите день открытия смены:", { reply_markup: shiftCalendar(t.y, t.mo) }),
+          sendDayPicker(cfg, chatId, t.y, t.mo),
         ]);
         return new Response("ok");
       }
