@@ -89,6 +89,7 @@ class _LoginPageState extends State<LoginPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: const Text('Birinchi xodimlarni yaratish'),
         content: const Text(
           'Administrator PIN: 0610\nKassir PIN: 0000\n\n'
@@ -137,19 +138,27 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
-        children: [
-          const Expanded(flex: 5, child: _BrandPanel()),
-          Expanded(
-            flex: 6,
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(40),
-                child: SizedBox(width: 480, child: _content(context)),
+      body: SafeArea(
+        child: LayoutBuilder(builder: (context, constraints) {
+          // Phones: just the form; the brand panel needs a wide screen.
+          final narrow = constraints.maxWidth < 820;
+          final form = Center(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.all(narrow ? 20 : 40),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 480),
+                child: _content(context),
               ),
             ),
-          ),
-        ],
+          );
+          if (narrow) return form;
+          return Row(
+            children: [
+              const Expanded(flex: 5, child: _BrandPanel()),
+              Expanded(flex: 6, child: form),
+            ],
+          );
+        }),
       ),
     );
   }
@@ -318,8 +327,7 @@ class _LoginPageState extends State<LoginPage> {
       children: [
         Text(title, style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 8),
-        Text(subtitle,
-            style: TextStyle(color: VColors.muted, fontSize: 16)),
+        Text(subtitle, style: TextStyle(color: VColors.muted, fontSize: 16)),
         const SizedBox(height: 28),
       ],
     );
@@ -374,8 +382,7 @@ class _DeviceCodeCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Qurilma kodi',
-                    style: TextStyle(color: VColors.muted)),
+                Text('Qurilma kodi', style: TextStyle(color: VColors.muted)),
                 const SizedBox(height: 3),
                 SelectableText(
                   code,

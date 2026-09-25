@@ -13,7 +13,7 @@ class ShiftPage extends StatelessWidget {
   final ClubController controller;
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.all(30),
+      padding: pagePadding(context),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         PageHeader(title: tr('Smena')),
         const SizedBox(height: 24),
@@ -31,7 +31,8 @@ class ShiftPage extends StatelessWidget {
                       EmptyState(
                           icon: Icons.point_of_sale_outlined,
                           title: tr('Smena yopiq'),
-                          subtitle: tr('Savdoni boshlash uchun smenani oching')),
+                          subtitle:
+                              tr('Savdoni boshlash uchun smenani oching')),
                       const SizedBox(height: 20),
                       FilledButton.icon(
                           onPressed: () => _open(context),
@@ -52,7 +53,8 @@ class ShiftPage extends StatelessWidget {
                               child: Column(children: [
                             _row(tr('Kassir'), controller.context!.userName,
                                 bold: true),
-                            _row(tr('Ochilgan'), shortDate(current['opened_at'])),
+                            _row(tr('Ochilgan'),
+                                shortDate(current['opened_at'])),
                             _row(tr('Smena boshidagi summa'),
                                 money(current['opening_cash']))
                           ])),
@@ -60,12 +62,14 @@ class ShiftPage extends StatelessWidget {
                           if (!isCashier) ...[
                             VCard(
                                 child: Column(children: [
-                              _row(tr('Buyurtmalar'), '${t['orders_count'] ?? 0}'),
+                              _row(tr('Buyurtmalar'),
+                                  '${t['orders_count'] ?? 0}'),
                               _row('Uzcard', money(t['card'] ?? t['uzcard'])),
                               _row('Долг', money(t['debt'])),
                               _row('Перевод', money(t['transfer'])),
                               _row('Наличные', money(t['cash'])),
-                              _row(tr('Tushum'), money(t['revenue'] ?? t['total']),
+                              _row(tr('Tushum'),
+                                  money(t['revenue'] ?? t['total']),
                                   bold: true),
                               _row(tr('Tannarx'), money(t['cost'])),
                               _row(tr('Foyda'), money(t['profit']), bold: true),
@@ -90,16 +94,16 @@ class ShiftPage extends StatelessWidget {
                                   child: OutlinedButton.icon(
                                       onPressed: () =>
                                           _cash(context, current, true),
-                                      icon: const Icon(
-                                          Icons.south_west_rounded),
+                                      icon:
+                                          const Icon(Icons.south_west_rounded),
                                       label: Text(tr('Kiritish')))),
                               const SizedBox(width: 14),
                               Expanded(
                                   child: OutlinedButton.icon(
                                       onPressed: () =>
                                           _cash(context, current, false),
-                                      icon: const Icon(
-                                          Icons.north_east_rounded),
+                                      icon:
+                                          const Icon(Icons.north_east_rounded),
                                       label: Text(tr('Chiqarish'))))
                             ]),
                             const SizedBox(height: 14),
@@ -111,8 +115,7 @@ class ShiftPage extends StatelessWidget {
                                     onPressed: () =>
                                         _printX(context, current, t),
                                     icon: const Icon(Icons.print_outlined),
-                                    label:
-                                        Text(tr('X-hisobotni chop etish')))),
+                                    label: Text(tr('X-hisobotni chop etish')))),
                             const SizedBox(height: 14),
                           ],
                           SizedBox(
@@ -131,14 +134,7 @@ class ShiftPage extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 9),
       decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: VColors.line))),
-      child: Row(children: [
-        Text(a, style: TextStyle(color: VColors.muted, fontSize: 16)),
-        const Spacer(),
-        Text(b,
-            style: TextStyle(
-                fontWeight: bold ? FontWeight.w900 : FontWeight.w600,
-                fontSize: 16))
-      ]));
+      child: InfoRow(a, b, bold: bold));
   Future<void> _printX(BuildContext context, Map<String, dynamic> current,
       Map<String, dynamic> totals) async {
     try {
@@ -152,7 +148,8 @@ class ShiftPage extends StatelessWidget {
       final bytes = buildShiftXReport(
         club: controller.context!.club,
         cashierName: controller.context!.userName,
-        openedAt: DateTime.tryParse('${current['opened_at']}') ?? DateTime.now(),
+        openedAt:
+            DateTime.tryParse('${current['opened_at']}') ?? DateTime.now(),
         totals: totals,
       );
       await PrinterService.print(config, bytes);
@@ -167,6 +164,7 @@ class ShiftPage extends StatelessWidget {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
+                scrollable: true,
                 title: Text(tr('Smenani ochish')),
                 content: TextField(
                     controller: c,
@@ -200,15 +198,16 @@ class ShiftPage extends StatelessWidget {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-                title: Text(tr(input ? 'Kassaga kiritish' : 'Kassadan chiqarish')),
+                scrollable: true,
+                title:
+                    Text(tr(input ? 'Kassaga kiritish' : 'Kassadan chiqarish')),
                 content: SizedBox(
                     width: 450,
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                       TextField(
                           controller: a,
                           keyboardType: TextInputType.number,
-                          decoration:
-                              InputDecoration(labelText: tr('Summa'))),
+                          decoration: InputDecoration(labelText: tr('Summa'))),
                       const SizedBox(height: 12),
                       TextField(
                           controller: n,
@@ -244,6 +243,7 @@ class ShiftPage extends StatelessWidget {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
+                scrollable: true,
                 title: Text(tr('Smenani yopish')),
                 content: TextField(
                     controller: a,

@@ -41,7 +41,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) => Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+            padding: pagePadding(context).copyWith(bottom: 0),
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text('Sozlamalar',
@@ -54,7 +54,8 @@ class _SettingsPageState extends State<SettingsPage> {
             height: 42,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: EdgeInsets.symmetric(
+                  horizontal: pagePadding(context).left - 10),
               itemCount: tabs.length,
               itemBuilder: (_, index) {
                 final active = index == tab;
@@ -69,9 +70,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           child: Center(
                             child: Text(tabs[index],
                                 style: TextStyle(
-                                    color: active
-                                        ? VColors.green
-                                        : VColors.muted,
+                                    color:
+                                        active ? VColors.green : VColors.muted,
                                     fontWeight: FontWeight.w800,
                                     fontSize: 14)),
                           ),
@@ -92,7 +92,7 @@ class _SettingsPageState extends State<SettingsPage> {
           Divider(height: 1, color: VColors.line),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(24),
+              padding: pagePadding(context),
               child: [
                 _resources(),
                 _tariffs(),
@@ -110,8 +110,7 @@ class _SettingsPageState extends State<SettingsPage> {
         future: Future.wait([
           widget.controller.repository
               .resources(widget.controller.context!.clubId),
-          widget.controller.repository
-              .zones(widget.controller.context!.clubId),
+          widget.controller.repository.zones(widget.controller.context!.clubId),
           widget.controller.repository
               .resourceTypes(widget.controller.context!.clubId),
           widget.controller.repository
@@ -129,7 +128,9 @@ class _SettingsPageState extends State<SettingsPage> {
           final grouped = <String, List<Map<String, dynamic>>>{};
           for (final row in rows) {
             final zone = '${row['zone'] ?? ''}'.trim();
-            grouped.putIfAbsent(zone.isEmpty ? 'Zonasiz' : zone, () => []).add(row);
+            grouped
+                .putIfAbsent(zone.isEmpty ? 'Zonasiz' : zone, () => [])
+                .add(row);
           }
           for (final list in grouped.values) {
             list.sort((a, b) {
@@ -170,15 +171,16 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: FilledButton.icon(
-                      onPressed: () => _addResource(context, 'BILLIARD', types, zones, relays),
+                      onPressed: () => _addResource(
+                          context, 'BILLIARD', types, zones, relays),
                       icon: const Icon(Icons.add, size: 17),
                       label: const Text('Billiard qo\'shish'),
                       style: FilledButton.styleFrom(
                         foregroundColor: Colors.black87,
                         minimumSize: const Size(0, 38),
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        textStyle: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w800),
+                        textStyle: appFont(const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w800)),
                       ),
                     ),
                   ),
@@ -189,15 +191,16 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: FilledButton.icon(
-                      onPressed: () => _addResource(context, 'PLAYSTATION', types, zones, relays),
+                      onPressed: () => _addResource(
+                          context, 'PLAYSTATION', types, zones, relays),
                       icon: const Icon(Icons.add, size: 17),
                       label: const Text('PlayStation qo\'shish'),
                       style: FilledButton.styleFrom(
                         foregroundColor: Colors.black87,
                         minimumSize: const Size(0, 38),
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        textStyle: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w800),
+                        textStyle: appFont(const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w800)),
                       ),
                     ),
                   ),
@@ -232,8 +235,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         row: row,
                         relays: relays,
                         controller: widget.controller,
-                        onEdit: () =>
-                            _addResource(context, null, types, zones, relays, row),
+                        onEdit: () => _addResource(
+                            context, null, types, zones, relays, row),
                       ),
                     )),
                 const SizedBox(height: 10),
@@ -250,7 +253,8 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(width: 10),
       Expanded(
           child: Text(label,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14))),
+              style:
+                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 14))),
       _VSwitch(
         value: value,
         onChanged: (v) async {
@@ -258,6 +262,7 @@ class _SettingsPageState extends State<SettingsPage> {
             final confirmed = await showDialog<bool>(
               context: context,
               builder: (c) => AlertDialog(
+                scrollable: true,
                 title: Text('$label ni o\'chirish'),
                 content: const Text(
                     'Bu yo\'nalish zal xaritasidan, tariflardan va kassadan butunlay yo\'qoladi. Yaratilgan joylar o\'chirilmaydi.'),
@@ -266,7 +271,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       onPressed: () => Navigator.pop(c, false),
                       child: const Text('Bekor qilish')),
                   FilledButton(
-                      style: FilledButton.styleFrom(backgroundColor: VColors.red),
+                      style:
+                          FilledButton.styleFrom(backgroundColor: VColors.red),
                       onPressed: () => Navigator.pop(c, true),
                       child: const Text('O\'chirish')),
                 ],
@@ -288,6 +294,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
+        scrollable: true,
         title: const Text('Yangi kategoriya'),
         content: TextField(
             controller: name,
@@ -344,6 +351,7 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          scrollable: true,
           title: Text(existing == null ? 'Yangi joy' : 'Joyni tahrirlash'),
           content: SizedBox(
             width: 480,
@@ -359,13 +367,16 @@ class _SettingsPageState extends State<SettingsPage> {
                   Expanded(
                     flex: 3,
                     child: DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: typeId,
                       decoration: const InputDecoration(labelText: 'Turi'),
                       items: matchingTypes
                           .map((row) => DropdownMenuItem(
-                              value: '${row['id']}', child: Text('${row['name']}')))
+                              value: '${row['id']}',
+                              child: Text('${row['name']}')))
                           .toList(),
-                      onChanged: (value) => setDialogState(() => typeId = value),
+                      onChanged: (value) =>
+                          setDialogState(() => typeId = value),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -379,6 +390,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ]),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   initialValue: zoneName,
                   decoration:
                       const InputDecoration(labelText: 'Zona / kategoriya'),
@@ -392,6 +404,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   initialValue: tariffId,
                   decoration:
                       const InputDecoration(labelText: 'Standart tarif'),
@@ -405,6 +418,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String?>(
+                  isExpanded: true,
                   initialValue: relayId,
                   decoration: const InputDecoration(labelText: 'Rele'),
                   items: [
@@ -420,7 +434,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   TextField(
                       controller: relayChannel,
                       keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Kanal raqami')),
+                      decoration:
+                          const InputDecoration(labelText: 'Kanal raqami')),
                 ],
               ],
             ),
@@ -450,7 +465,9 @@ class _SettingsPageState extends State<SettingsPage> {
     if (existing == null) {
       values['status'] = 'FREE';
       values['active'] = true;
-      await widget.controller.repository.client.from('resources').insert(values);
+      await widget.controller.repository.client
+          .from('resources')
+          .insert(values);
     } else {
       await widget.controller.repository.client
           .from('resources')
@@ -485,20 +502,18 @@ class _SettingsPageState extends State<SettingsPage> {
                 (tariff) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: VCard(
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('${tariff['name']}',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w800, fontSize: 17)),
-                              Text('${money(tariff['price_per_hour'])} so\'m / soat',
-                                  style: TextStyle(color: VColors.subtle)),
-                            ],
-                          ),
-                        ),
+                    child: AdaptiveRow(
+                      content: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${tariff['name']}',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 17)),
+                          Text('${money(tariff['price_per_hour'])} / soat',
+                              style: TextStyle(color: VColors.subtle)),
+                        ],
+                      ),
+                      actions: [
                         IconButton(
                             tooltip: 'Vaqt bo\'yicha narxlar',
                             onPressed: () {},
@@ -513,12 +528,15 @@ class _SettingsPageState extends State<SettingsPage> {
                           },
                         ),
                         IconButton(
-                          icon: Icon(Icons.delete_outline_rounded, color: VColors.red),
+                          icon: Icon(Icons.delete_outline_rounded,
+                              color: VColors.red),
                           onPressed: () async {
                             await widget.controller.repository.client
                                 .from('tariffs')
-                                .update({'archived_at': DateTime.now().toIso8601String(), 'active': false})
-                                .eq('id', tariff['id']);
+                                .update({
+                              'archived_at': DateTime.now().toIso8601String(),
+                              'active': false
+                            }).eq('id', tariff['id']);
                             widget.controller.refresh();
                           },
                         ),
@@ -531,16 +549,23 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               const SizedBox(height: 24),
-              Row(children: [
-                const Text('Chegirmalar va aksiyalar',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                const Spacer(),
-                OutlinedButton.icon(
-                  onPressed: () => _editDiscount(context),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Yangi chegirma'),
-                ),
-              ]),
+              SizedBox(
+                  width: double.infinity,
+                  child: Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        const Text('Chegirmalar va aksiyalar',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w900, fontSize: 17)),
+                        OutlinedButton.icon(
+                          onPressed: () => _editDiscount(context),
+                          icon: const Icon(Icons.add, size: 18),
+                          label: const Text('Yangi chegirma'),
+                        ),
+                      ])),
               const SizedBox(height: 8),
               Text(
                 'Nomlangan chegirmalar kassirga to\'lovni rasmiylashtirishda tezkor tanlash uchun mavjud (har safar summani qo\'lda kiritish o\'rniga).',
@@ -557,7 +582,8 @@ class _SettingsPageState extends State<SettingsPage> {
                             children: [
                               Text('${d['name']}',
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.w800, fontSize: 16)),
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16)),
                               Text(
                                   '${d['kind'] == 'PERCENT' ? '-${d['value']}%' : '-${money(d['value'])}'}${d['applies_to'] == 'TIME' ? ' · faqat vaqtga' : ''}',
                                   style: TextStyle(color: VColors.subtle)),
@@ -595,6 +621,7 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          scrollable: true,
           title: Text(discount == null ? 'Yangi chegirma' : 'Chegirma'),
           content: SizedBox(
             width: 420,
@@ -606,11 +633,14 @@ class _SettingsPageState extends State<SettingsPage> {
                     decoration: const InputDecoration(labelText: 'Nomi')),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: kind,
                   decoration: const InputDecoration(labelText: 'Turi'),
                   items: const [
-                    DropdownMenuItem(value: 'PERCENT', child: Text('Foizda (%)')),
-                    DropdownMenuItem(value: 'AMOUNT', child: Text('Summada (so\'m)')),
+                    DropdownMenuItem(
+                        value: 'PERCENT', child: Text('Foizda (%)')),
+                    DropdownMenuItem(
+                        value: 'AMOUNT', child: Text('Summada (so\'m)')),
                   ],
                   onChanged: (v) => setDialogState(() => kind = v ?? kind),
                 ),
@@ -621,13 +651,19 @@ class _SettingsPageState extends State<SettingsPage> {
                     decoration: const InputDecoration(labelText: 'Qiymati')),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: appliesTo,
-                  decoration: const InputDecoration(labelText: 'Nimaga qo\'llanadi'),
+                  decoration:
+                      const InputDecoration(labelText: 'Nimaga qo\'llanadi'),
                   items: const [
-                    DropdownMenuItem(value: 'ALL', child: Text('Butun chek (vaqt + bar)')),
-                    DropdownMenuItem(value: 'TIME', child: Text('Faqat vaqtga (bar hisobga olinmaydi)')),
+                    DropdownMenuItem(
+                        value: 'ALL', child: Text('Butun chek (vaqt + bar)')),
+                    DropdownMenuItem(
+                        value: 'TIME',
+                        child: Text('Faqat vaqtga (bar hisobga olinmaydi)')),
                   ],
-                  onChanged: (v) => setDialogState(() => appliesTo = v ?? appliesTo),
+                  onChanged: (v) =>
+                      setDialogState(() => appliesTo = v ?? appliesTo),
                 ),
               ],
             ),
@@ -653,7 +689,9 @@ class _SettingsPageState extends State<SettingsPage> {
       'active': true,
     };
     if (discount == null) {
-      await widget.controller.repository.client.from('discounts').insert(values);
+      await widget.controller.repository.client
+          .from('discounts')
+          .insert(values);
     } else {
       await widget.controller.repository.client
           .from('discounts')
@@ -671,6 +709,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final approved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        scrollable: true,
         title: Text(tariff == null ? 'Yangi tarif' : 'Tarif'),
         content: SizedBox(
           width: 450,
@@ -715,7 +754,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     widget.controller.refresh();
   }
-
 
   Widget _relays() => AsyncPane<List<Map<String, dynamic>>>(
         future: widget.controller.repository
@@ -797,6 +835,7 @@ class _SettingsPageState extends State<SettingsPage> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          scrollable: true,
           title: Text(existing == null ? 'Yangi rele' : 'Releni tahrirlash'),
           content: SizedBox(
             width: 520,
@@ -809,12 +848,13 @@ class _SettingsPageState extends State<SettingsPage> {
                     decoration: const InputDecoration(labelText: 'Nomi')),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: provider,
                   decoration:
                       const InputDecoration(labelText: 'Ishlab chiqaruvchi'),
                   items: _providerLabels.entries
-                      .map((e) => DropdownMenuItem(
-                          value: e.key, child: Text(e.value)))
+                      .map((e) =>
+                          DropdownMenuItem(value: e.key, child: Text(e.value)))
                       .toList(),
                   onChanged: (value) =>
                       setDialogState(() => provider = value ?? provider),
@@ -824,9 +864,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   Row(children: [
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: comPort,
-                        decoration: const InputDecoration(
-                            labelText: 'Plata COM-porti'),
+                        decoration:
+                            const InputDecoration(labelText: 'Plata COM-porti'),
                         hint: const Text('Tanlanmagan'),
                         items: ports
                             .map((p) =>
@@ -837,8 +878,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ),
                     IconButton(
-                      onPressed: () =>
-                          setDialogState(() => ports = PrinterService.listSerialPorts()),
+                      onPressed: () => setDialogState(
+                          () => ports = PrinterService.listSerialPorts()),
                       icon: const Icon(Icons.refresh_rounded),
                     ),
                   ]),
@@ -911,8 +952,9 @@ class _SettingsPageState extends State<SettingsPage> {
           'p_provider': provider,
           'p_api_base_url': null,
           'p_channels': int.tryParse(channels.text) ?? 1,
-          'p_configuration':
-              provider == 'USB_SERIAL' && comPort != null ? {'port': comPort} : <String, dynamic>{},
+          'p_configuration': provider == 'USB_SERIAL' && comPort != null
+              ? {'port': comPort}
+              : <String, dynamic>{},
           'p_secret_ref': null,
           'p_enabled': enabled,
           'p_direct_control': provider == 'USB_SERIAL',
@@ -974,8 +1016,8 @@ class _TokenSettingsState extends State<_TokenSettings> {
                   controller: _tokenCtrl,
                   enabled: !_busy,
                   maxLines: 2,
-                  decoration:
-                      InputDecoration(hintText: tr("Kodni to'liq joylashtiring")),
+                  decoration: InputDecoration(
+                      hintText: tr("Kodni to'liq joylashtiring")),
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -1042,6 +1084,7 @@ class _TokenSettingsState extends State<_TokenSettings> {
       await showDialog<bool>(
         context: context,
         builder: (c) => AlertDialog(
+          scrollable: true,
           title: Text(title),
           content: Text(body),
           actions: [
@@ -1171,78 +1214,92 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
   @override
   Widget build(BuildContext context) => ListView(
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: VCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text('Chekdagi ma\'lumotlar',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w900, fontSize: 18)),
-                      const SizedBox(height: 16),
-                      _logoPicker(),
-                      const SizedBox(height: 16),
-                      _field(name, 'Chekdagi nomi',
-                          hint: 'Bo\'sh bo\'lsa — klub nomi chop etiladi'),
-                      _field(subtitle, 'Yuqoridagi qator',
-                          hint: 'Nomi ostida chop etiladi — manzil yoki shior'),
-                      _field(phone, 'Chekdagi telefon'),
-                      _field(footer, 'Pastdagi qator',
-                          hint: 'Oxirida chop etiladi — minnatdorchilik yoki shartlar'),
-                      _field(qr, 'QR-koddagi havola',
-                          hint: 'Instagram, Telegram yoki klub sayti'),
-                      _field(caption, 'QR-kod ostidagi yozuv'),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('QR-kodni chop etish'),
-                        value: enabled,
-                        onChanged: (value) => setState(() => enabled = value),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Tannarxni chop etish'),
-                        subtitle: const Text(
-                            'Har bir tovar tagida tannarxi ko\'rsatiladi',
-                            style: TextStyle(fontSize: 12)),
-                        value: printCost,
-                        onChanged: (value) =>
-                            setState(() => printCost = value),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('Qog\'oz eni',
-                          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Termoprinteringizning rulon o\'lchamini tanlang — chekning eni va qatorlarning ko\'chirilishi shunga bog\'liq.',
-                        style: TextStyle(color: VColors.muted, fontSize: 12),
-                      ),
-                      const SizedBox(height: 10),
-                      SegmentedButton<int>(
-                        segments: const [
-                          ButtonSegment(value: 58, label: Text('58 mm')),
-                          ButtonSegment(value: 80, label: Text('80 mm')),
-                        ],
-                        selected: {paper},
-                        onSelectionChanged: (value) =>
-                            setState(() => paper = value.first),
-                      ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                            onPressed: _save, child: const Text('Saqlash')),
-                      ),
-                    ],
+          LayoutBuilder(builder: (context, constraints) {
+            final form = VCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('Chekdagi ma\'lumotlar',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                  const SizedBox(height: 16),
+                  _logoPicker(),
+                  const SizedBox(height: 16),
+                  _field(name, 'Chekdagi nomi',
+                      hint: 'Bo\'sh bo\'lsa — klub nomi chop etiladi'),
+                  _field(subtitle, 'Yuqoridagi qator',
+                      hint: 'Nomi ostida chop etiladi — manzil yoki shior'),
+                  _field(phone, 'Chekdagi telefon'),
+                  _field(footer, 'Pastdagi qator',
+                      hint:
+                          'Oxirida chop etiladi — minnatdorchilik yoki shartlar'),
+                  _field(qr, 'QR-koddagi havola',
+                      hint: 'Instagram, Telegram yoki klub sayti'),
+                  _field(caption, 'QR-kod ostidagi yozuv'),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('QR-kodni chop etish'),
+                    value: enabled,
+                    onChanged: (value) => setState(() => enabled = value),
                   ),
-                ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Tannarxni chop etish'),
+                    subtitle: const Text(
+                        'Har bir tovar tagida tannarxi ko\'rsatiladi',
+                        style: TextStyle(fontSize: 12)),
+                    value: printCost,
+                    onChanged: (value) => setState(() => printCost = value),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('Qog\'oz eni',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Termoprinteringizning rulon o\'lchamini tanlang — chekning eni va qatorlarning ko\'chirilishi shunga bog\'liq.',
+                    style: TextStyle(color: VColors.muted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 10),
+                  SegmentedButton<int>(
+                    segments: const [
+                      ButtonSegment(value: 58, label: Text('58 mm')),
+                      ButtonSegment(value: 80, label: Text('80 mm')),
+                    ],
+                    selected: {paper},
+                    onSelectionChanged: (value) =>
+                        setState(() => paper = value.first),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                        onPressed: _save, child: const Text('Saqlash')),
+                  ),
+                ],
               ),
-              const SizedBox(width: 30),
-              SizedBox(width: 420, child: _preview()),
-            ],
-          ),
+            );
+            if (constraints.maxWidth < 860) {
+              return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    form,
+                    const SizedBox(height: 20),
+                    Center(
+                        child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 420),
+                            child: _preview())),
+                  ]);
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: form),
+                const SizedBox(width: 30),
+                SizedBox(width: 420, child: _preview()),
+              ],
+            );
+          }),
           const SizedBox(height: 25),
           VCard(
             child: Column(
@@ -1254,12 +1311,18 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
                 Text('Piksellarda — o\'z printeringiz va ko\'zingizga moslang.',
                     style: TextStyle(color: VColors.muted, fontSize: 12)),
                 const SizedBox(height: 6),
-                _fontStepper('Muassasa nomi', fontTitle, (v) => setState(() => fontTitle = v)),
-                _fontStepper('Yakuniy summa', fontTotal, (v) => setState(() => fontTotal = v)),
-                _fontStepper('Chek ma\'lumotlari', fontMeta, (v) => setState(() => fontMeta = v)),
-                _fontStepper('Buyurtma pozitsiyalari', fontItems, (v) => setState(() => fontItems = v)),
-                _fontStepper('Pastdagi qator', fontFooter, (v) => setState(() => fontFooter = v)),
-                _fontStepper('QR-kod ustidagi yozuv', fontQrCaption, (v) => setState(() => fontQrCaption = v)),
+                _fontStepper('Muassasa nomi', fontTitle,
+                    (v) => setState(() => fontTitle = v)),
+                _fontStepper('Yakuniy summa', fontTotal,
+                    (v) => setState(() => fontTotal = v)),
+                _fontStepper('Chek ma\'lumotlari', fontMeta,
+                    (v) => setState(() => fontMeta = v)),
+                _fontStepper('Buyurtma pozitsiyalari', fontItems,
+                    (v) => setState(() => fontItems = v)),
+                _fontStepper('Pastdagi qator', fontFooter,
+                    (v) => setState(() => fontFooter = v)),
+                _fontStepper('QR-kod ustidagi yozuv', fontQrCaption,
+                    (v) => setState(() => fontQrCaption = v)),
               ],
             ),
           ),
@@ -1313,13 +1376,15 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
 
   Future<void> _pickLogo() async {
     try {
-      final pickedPath = pickFileNative(title: 'Logotip tanlash', extensions: ['png']);
+      final pickedPath =
+          await pickImageFile(title: 'Logotip tanlash', extensions: ['png']);
       if (pickedPath == null) return;
       setState(() => _uploadingLogo = true);
       final bytes = await File(pickedPath).readAsBytes();
       final clubId = widget.controller.context!.clubId;
       final path = '$clubId/receipt_logo.png';
-      final storage = widget.controller.repository.client.storage.from('club-assets');
+      final storage =
+          widget.controller.repository.client.storage.from('club-assets');
       await storage.uploadBinary(path, bytes,
           fileOptions: FileOptions(contentType: 'image/png', upsert: true));
       final url = storage.getPublicUrl(path);
@@ -1357,7 +1422,9 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
         ]),
       );
 
-  Widget _field(TextEditingController controller, String label, {String? hint}) => Padding(
+  Widget _field(TextEditingController controller, String label,
+          {String? hint}) =>
+      Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1403,11 +1470,15 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
                   if (subtitle.text.isNotEmpty)
                     Text(subtitle.text,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: _Paper.muted, fontSize: fontMeta.toDouble())),
+                        style: TextStyle(
+                            color: _Paper.muted,
+                            fontSize: fontMeta.toDouble())),
                   if (phone.text.isNotEmpty)
                     Text(phone.text,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: _Paper.muted, fontSize: fontMeta.toDouble())),
+                        style: TextStyle(
+                            color: _Paper.muted,
+                            fontSize: fontMeta.toDouble())),
                   const SizedBox(height: 10),
                   _dashedDivider(),
                   const SizedBox(height: 10),
@@ -1426,21 +1497,19 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
                   _dashedDivider(),
                   const SizedBox(height: 10),
                   _previewItem('1 × Бильярд (1 ч 30 мин)', '60 000'),
-                  if (printCost)
-                    _previewCost('12 000'),
+                  if (printCost) _previewCost('12 000'),
                   _previewItem('2 × Coca-Cola 0.5л', '24 000'),
-                  if (printCost)
-                    _previewCost('9 000'),
+                  if (printCost) _previewCost('9 000'),
                   _previewItem('1 × Чипсы', '15 000'),
-                  if (printCost)
-                    _previewCost('8 000'),
+                  if (printCost) _previewCost('8 000'),
                   const SizedBox(height: 10),
                   _dashedDivider(),
                   const SizedBox(height: 10),
                   _previewItem('Oraliq summa', '99 000'),
                   _previewItem('Chegirma', '-9 000'),
                   const SizedBox(height: 4),
-                  _previewItem('JAMI', '90 000 so\'m', bold: true, size: fontTotal.toDouble()),
+                  _previewItem('JAMI', '90 000 so\'m',
+                      bold: true, size: fontTotal.toDouble()),
                   _previewLine('To\'lov:', 'Наличные'),
                   const SizedBox(height: 10),
                   _dashedDivider(),
@@ -1448,14 +1517,18 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
                   if (footer.text.isNotEmpty)
                     Text(footer.text,
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: _Paper.ink, fontSize: fontFooter.toDouble())),
+                        style: TextStyle(
+                            color: _Paper.ink,
+                            fontSize: fontFooter.toDouble())),
                   if (enabled && qr.text.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     _dashedDivider(),
                     const SizedBox(height: 12),
                     if (caption.text.isNotEmpty)
                       Text(caption.text,
-                          style: TextStyle(color: _Paper.ink, fontSize: fontQrCaption.toDouble())),
+                          style: TextStyle(
+                              color: _Paper.ink,
+                              fontSize: fontQrCaption.toDouble())),
                     const SizedBox(height: 10),
                     QrImageView(data: qr.text, size: 130),
                   ],
@@ -1479,11 +1552,14 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
   Widget _previewLine(String label, String value) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 1),
         child: Row(children: [
-          Text(label, style: TextStyle(color: _Paper.ink, fontSize: fontMeta.toDouble())),
+          Text(label,
+              style:
+                  TextStyle(color: _Paper.ink, fontSize: fontMeta.toDouble())),
           const SizedBox(width: 6),
           Expanded(
               child: Text(value,
-                  style: TextStyle(color: _Paper.ink, fontSize: fontMeta.toDouble()))),
+                  style: TextStyle(
+                      color: _Paper.ink, fontSize: fontMeta.toDouble()))),
         ]),
       );
 
@@ -1493,7 +1569,8 @@ class _ReceiptSettingsState extends State<_ReceiptSettings> {
             style: TextStyle(color: _Paper.muted, fontSize: 12)),
       );
 
-  Widget _previewItem(String label, String amount, {bool bold = false, double? size}) =>
+  Widget _previewItem(String label, String amount,
+          {bool bold = false, double? size}) =>
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(children: [
@@ -1574,8 +1651,7 @@ class PrinterSettingsSection extends StatefulWidget {
   final bool embedded;
 
   @override
-  State<PrinterSettingsSection> createState() =>
-      _PrinterSettingsSectionState();
+  State<PrinterSettingsSection> createState() => _PrinterSettingsSectionState();
 }
 
 class _PrinterSettingsSectionState extends State<PrinterSettingsSection> {
@@ -1600,8 +1676,7 @@ class _PrinterSettingsSectionState extends State<PrinterSettingsSection> {
             children: [
               if (widget.embedded)
                 const Text('Shu kassa printeri',
-                    style:
-                        TextStyle(fontWeight: FontWeight.w900, fontSize: 18))
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18))
               else
                 Row(children: [
                   const Expanded(
@@ -1685,6 +1760,7 @@ class _PrinterSettingsSectionState extends State<PrinterSettingsSection> {
     return Row(children: [
       Expanded(
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: names.contains(p.windowsPrinterName)
               ? p.windowsPrinterName
               : null,
@@ -1710,6 +1786,7 @@ class _PrinterSettingsSectionState extends State<PrinterSettingsSection> {
       Row(children: [
         Expanded(
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: ports.contains(p.serialPort) ? p.serialPort : null,
             decoration: const InputDecoration(labelText: 'COM-port'),
             items: ports
@@ -1784,10 +1861,10 @@ class _TelegramBotSettingsState extends State<_TelegramBotSettings> {
     super.dispose();
   }
 
-  Future<Map<String, dynamic>> _load() => widget.controller.repository.client
-      .rpc('club_bot_info',
-          params: {'p_club_id': widget.controller.context!.clubId})
-      .then(rowMap);
+  Future<Map<String, dynamic>> _load() =>
+      widget.controller.repository.client.rpc('club_bot_info', params: {
+        'p_club_id': widget.controller.context!.clubId
+      }).then(rowMap);
 
   @override
   Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
@@ -1826,13 +1903,15 @@ class _TelegramBotSettingsState extends State<_TelegramBotSettings> {
                       _kv('Birinchi bo\'lib «Start» tugmasini bosgan',
                           'administrator bo\'ladi'),
                       const SizedBox(height: 8),
-                      _kv('Administrator ulangan', adminPaired ? 'ha' : 'yo\'q'),
+                      _kv('Administrator ulangan',
+                          adminPaired ? 'ha' : 'yo\'q'),
                       const SizedBox(height: 18),
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
                           onPressed: _busy ? null : () => _disconnect(context),
-                          icon: Icon(Icons.link_off_rounded, color: VColors.red),
+                          icon:
+                              Icon(Icons.link_off_rounded, color: VColors.red),
                           label: Text('Botni o\'chirish',
                               style: TextStyle(color: VColors.red)),
                         ),
@@ -1850,7 +1929,8 @@ class _TelegramBotSettingsState extends State<_TelegramBotSettings> {
                         style: TextStyle(
                             fontWeight: FontWeight.w900, fontSize: 18)),
                     const SizedBox(height: 14),
-                    _step(1, 'Telegramda @BotFather\'ni oching va /newbot yuboring'),
+                    _step(1,
+                        'Telegramda @BotFather\'ni oching va /newbot yuboring'),
                     const SizedBox(height: 10),
                     _step(2, 'Nom o\'ylab toping — masalan «Angren klubi»'),
                     const SizedBox(height: 10),
@@ -1917,7 +1997,8 @@ class _TelegramBotSettingsState extends State<_TelegramBotSettings> {
   Future<void> _connect(BuildContext context) async {
     final token = _token.text.trim();
     if (!RegExp(r'^\d+:[\w-]{20,}$').hasMatch(token)) {
-      showError(context, 'Bu bot tokeniga o\'xshamaydi — BotFather\'dan olingan tokenni to\'liq nusxalang.');
+      showError(context,
+          'Bu bot tokeniga o\'xshamaydi — BotFather\'dan olingan tokenni to\'liq nusxalang.');
       return;
     }
     setState(() => _busy = true);
@@ -1926,16 +2007,17 @@ class _TelegramBotSettingsState extends State<_TelegramBotSettings> {
           await http.get(Uri.parse('https://api.telegram.org/bot$token/getMe'));
       final me = jsonDecode(meRes.body) as Map<String, dynamic>;
       if (me['ok'] != true) {
-        throw Exception('Telegram tokenni tasdiqlamadi. Tokenni tekshirib qaytadan urining.');
+        throw Exception(
+            'Telegram tokenni tasdiqlamadi. Tokenni tekshirib qaytadan urining.');
       }
       final username = (me['result'] as Map)['username'] as String?;
 
-      final reg = await widget.controller.repository.client.rpc('set_club_bot',
-          params: {
-            'p_club_id': widget.controller.context!.clubId,
-            'p_bot_token': token,
-            'p_username': username,
-          });
+      final reg = await widget.controller.repository.client
+          .rpc('set_club_bot', params: {
+        'p_club_id': widget.controller.context!.clubId,
+        'p_bot_token': token,
+        'p_username': username,
+      });
       final secret = rowMap(reg)['webhook_secret'] as String;
 
       final hookRes = await http.post(
@@ -1945,13 +2027,15 @@ class _TelegramBotSettingsState extends State<_TelegramBotSettings> {
         // edge function of the same name is a stale copy without the
         // receipts, ratings or speed-ups.
         body: jsonEncode({
-          'url': 'https://club-bot-production.up.railway.app/club-bot?s=$secret',
+          'url':
+              'https://club-bot-production.up.railway.app/club-bot?s=$secret',
           'allowed_updates': ['message', 'callback_query'],
         }),
       );
       final hook = jsonDecode(hookRes.body) as Map<String, dynamic>;
       if (hook['ok'] != true) {
-        throw Exception('Bot saqlandi, lekin webhook o\'rnatilmadi. Qaytadan urining.');
+        throw Exception(
+            'Bot saqlandi, lekin webhook o\'rnatilmadi. Qaytadan urining.');
       }
 
       _token.clear();
@@ -1968,6 +2052,7 @@ class _TelegramBotSettingsState extends State<_TelegramBotSettings> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        scrollable: true,
         title: const Text('Botni o\'chirish'),
         content: const Text(
             'Bot o\'chiriladi — mijozlar va administratorlar undan foydalana olmaydi. Keyinroq yana ulash mumkin.'),
@@ -2024,6 +2109,81 @@ class _ResourceRow extends StatelessWidget {
     final channelLabel =
         row['relay_channel'] != null ? 'Kanal ${row['relay_channel']}' : '—';
 
+    final controls = <Widget>[
+      if (relay.isNotEmpty)
+        IconButton(
+          tooltip: 'Releni sinash',
+          icon: const Icon(Icons.settings_remote_outlined, size: 17),
+          onPressed: () async {
+            try {
+              await controller.repository.relayCommand('${row['id']}', true);
+              if (context.mounted) showDone(context, 'Yoqildi');
+            } catch (e) {
+              if (context.mounted) showError(context, e);
+            }
+          },
+        ),
+      _VSwitch(
+        value: row['active'] != false,
+        onChanged: (value) async {
+          await controller.repository.client
+              .from('resources')
+              .update({'active': value}).eq('id', row['id']);
+          controller.refresh();
+        },
+      ),
+      const SizedBox(width: 4),
+      IconButton(
+        icon: Icon(Icons.delete_outline_rounded, size: 19, color: VColors.red),
+        onPressed: () async {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (c) => AlertDialog(
+              scrollable: true,
+              title: const Text('Joyni o\'chirish'),
+              content: Text('${row['name']} butunlay o\'chiriladi.'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(c, false),
+                    child: const Text('Bekor qilish')),
+                FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: VColors.red),
+                    onPressed: () => Navigator.pop(c, true),
+                    child: const Text('O\'chirish')),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
+          await controller.repository.client
+              .from('resources')
+              .delete()
+              .eq('id', row['id']);
+          controller.refresh();
+        },
+      ),
+      IconButton(
+          icon: const Icon(Icons.edit_outlined, size: 19), onPressed: onEdit),
+    ];
+    if (isCompactWidth(context)) {
+      return VCard(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 6),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${row['name']}',
+              style:
+                  const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+          const SizedBox(height: 2),
+          Text(
+              [
+                if (typeName.isNotEmpty) typeName,
+                if (zoneName.isNotEmpty) zoneName,
+                priceLabel,
+                channelLabel,
+              ].join(' · '),
+              style: TextStyle(color: VColors.muted, fontSize: 13)),
+          Row(mainAxisAlignment: MainAxisAlignment.end, children: controls),
+        ]),
+      );
+    }
     return VCard(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(children: [
@@ -2033,7 +2193,8 @@ class _ResourceRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('${row['name']}',
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 15)),
               Text(typeName,
                   style: TextStyle(color: VColors.subtle, fontSize: 12.5)),
             ],
@@ -2045,65 +2206,13 @@ class _ResourceRow extends StatelessWidget {
                 style: TextStyle(color: VColors.muted, fontSize: 13))),
         Expanded(
             flex: 3,
-            child:
-                Text(priceLabel, style: TextStyle(color: VColors.muted, fontSize: 13))),
+            child: Text(priceLabel,
+                style: TextStyle(color: VColors.muted, fontSize: 13))),
         Expanded(
             flex: 2,
             child: Text(channelLabel,
                 style: TextStyle(color: VColors.subtle, fontSize: 13))),
-        if (relay.isNotEmpty)
-          IconButton(
-            tooltip: 'Releni sinash',
-            icon: const Icon(Icons.settings_remote_outlined, size: 17),
-            onPressed: () async {
-              try {
-                await controller.repository
-                    .relayCommand('${row['id']}', true);
-                if (context.mounted) showDone(context, 'Yoqildi');
-              } catch (e) {
-                if (context.mounted) showError(context, e);
-              }
-            },
-          ),
-        _VSwitch(
-          value: row['active'] != false,
-          onChanged: (value) async {
-            await controller.repository.client
-                .from('resources')
-                .update({'active': value}).eq('id', row['id']);
-            controller.refresh();
-          },
-        ),
-        const SizedBox(width: 4),
-        IconButton(
-          icon: Icon(Icons.delete_outline_rounded, size: 19, color: VColors.red),
-          onPressed: () async {
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (c) => AlertDialog(
-                title: const Text('Joyni o\'chirish'),
-                content: Text('${row['name']} butunlay o\'chiriladi.'),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(c, false),
-                      child: const Text('Bekor qilish')),
-                  FilledButton(
-                      style: FilledButton.styleFrom(backgroundColor: VColors.red),
-                      onPressed: () => Navigator.pop(c, true),
-                      child: const Text('O\'chirish')),
-                ],
-              ),
-            );
-            if (confirmed != true) return;
-            await controller.repository.client
-                .from('resources')
-                .delete()
-                .eq('id', row['id']);
-            controller.refresh();
-          },
-        ),
-        IconButton(
-            icon: const Icon(Icons.edit_outlined, size: 19), onPressed: onEdit),
+        ...controls,
       ]),
     );
   }

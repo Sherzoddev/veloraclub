@@ -77,8 +77,12 @@ class ClubRepository {
           .select(
               '*, customers(id,full_name,phone), orders!orders_session_id_fkey(*)')
           .eq('club_id', clubId)
-          .inFilter('status', ['STARTING', 'ACTIVE', 'PAUSED', 'STOPPING'])
-          .order('started_at', ascending: true));
+          .inFilter('status', [
+        'STARTING',
+        'ACTIVE',
+        'PAUSED',
+        'STOPPING'
+      ]).order('started_at', ascending: true));
 
   Future<List<Map<String, dynamic>>> tariffs(String clubId) async => rowList(
         await client
@@ -259,8 +263,7 @@ class ClubRepository {
           // omits the offset — Postgres then reads it as UTC, silently
           // shifting the boundary by the server's UTC offset (5h in
           // Tashkent) and dropping early-morning rows from "today".
-          .gte('created_at',
-              (from ?? DateTime(2000)).toUtc().toIso8601String())
+          .gte('created_at', (from ?? DateTime(2000)).toUtc().toIso8601String())
           .order('created_at', ascending: false));
 
   Future<List<Map<String, dynamic>>> paymentMethods(String clubId) async =>
@@ -328,8 +331,8 @@ class ClubRepository {
         channel ?? (relayDevice['channel'] as num?)?.toInt() ?? 1;
     final state = on ? 1 : 0;
     final checksum = (0xA0 + resolvedChannel + state) & 0xFF;
-    await PrinterService.printRawToSerial(port,
-        Uint8List.fromList([0xA0, resolvedChannel, state, checksum]));
+    await PrinterService.printRawToSerial(
+        port, Uint8List.fromList([0xA0, resolvedChannel, state, checksum]));
   }
 
   Future<Map<String, dynamic>> extendSessionTimer(
@@ -350,8 +353,8 @@ class ClubRepository {
       );
 
   Future<Map<String, dynamic>> sessionCurrentCharge(String sessionId) async =>
-      rowMap(await client.rpc('session_current_charge',
-          params: {'p_session_id': sessionId}));
+      rowMap(await client
+          .rpc('session_current_charge', params: {'p_session_id': sessionId}));
 
   Future<Map<String, dynamic>> sessionNewRound(String sessionId,
           {String? note}) async =>

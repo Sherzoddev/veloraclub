@@ -39,6 +39,20 @@ String tr(String uz) {
 
 const Map<String, String> _ru = {
   // Sidebar navigation
+  'Menyu': 'Меню',
+  // Product categories
+  'Toifalar': 'Категории',
+  'Toifasiz': 'Без категории',
+  'Toifa qo\'shish': 'Добавить категорию',
+  'Hali toifa yo\'q': 'Категорий пока нет',
+  'Yuqoriga': 'Выше',
+  'Pastga': 'Ниже',
+  'Yangi toifa': 'Новая категория',
+  'Toifani tahrirlash': 'Изменить категорию',
+  'Rang': 'Цвет',
+  'Toifani o\'chirish': 'Удалить категорию',
+  'Toifadagi tovarlar o\'chmaydi — ular «Toifasiz» bo\'limiga o\'tadi.':
+      'Товары не удалятся — они перейдут в раздел «Без категории».',
   'Klub': 'Клуб',
   'Sotuvlar': 'Продажи',
   'Bronlar': 'Брони',
@@ -149,7 +163,8 @@ const Map<String, String> _ru = {
   'Savat': 'Корзина',
   'Tozalash': 'Очистить',
   "Chek bo'sh": 'Чек пуст',
-  'Chekka qo\'shish uchun tovar tanlang': 'Выберите товар, чтобы добавить в чек',
+  'Chekka qo\'shish uchun tovar tanlang':
+      'Выберите товар, чтобы добавить в чек',
   'Chegirma': 'Скидка',
   'Oraliq summa': 'Промежуточная сумма',
   'Jami': 'Итого',
@@ -207,7 +222,8 @@ const Map<String, String> _ru = {
   'Eng yuqori daraja': 'Наивысший уровень',
 
   // Smena (shift)
-  'Savdoni boshlash uchun smenani oching': 'Откройте смену, чтобы начать продажу',
+  'Savdoni boshlash uchun smenani oching':
+      'Откройте смену, чтобы начать продажу',
   'Smenani ochish': 'Открыть смену',
   'Kassir': 'Кассир',
   'Ochilgan': 'Открыта',

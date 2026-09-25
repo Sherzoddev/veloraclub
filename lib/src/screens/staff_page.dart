@@ -12,7 +12,7 @@ class StaffPage extends StatelessWidget {
   final ClubController controller;
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.all(30),
+      padding: pagePadding(context),
       child: Column(children: [
         PageHeader(title: 'Xodimlar', actions: [
           FilledButton.icon(
@@ -54,8 +54,7 @@ class StaffPage extends StatelessWidget {
                             else ...[
                               IconButton(
                                   onPressed: () => _edit(context, m),
-                                  icon: const Icon(
-                                      Icons.edit_outlined)),
+                                  icon: const Icon(Icons.edit_outlined)),
                               Switch(
                                   value: m['active'] == true,
                                   onChanged: (v) => _toggle(context, m, v)),
@@ -85,18 +84,20 @@ class StaffPage extends StatelessWidget {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-            title: const Text('Xodimni bazadan o\'chirish?'),
-            content: Text(
-                '$name butunlay o\'chiriladi. Bu amalni qaytarib bo\'lmaydi.'),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Bekor qilish')),
-              FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: VColors.red),
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('O\'chirish'))
-            ]));
+                scrollable: true,
+                title: const Text('Xodimni bazadan o\'chirish?'),
+                content: Text(
+                    '$name butunlay o\'chiriladi. Bu amalni qaytarib bo\'lmaydi.'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Bekor qilish')),
+                  FilledButton(
+                      style:
+                          FilledButton.styleFrom(backgroundColor: VColors.red),
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('O\'chirish'))
+                ]));
     if (ok != true) return;
     try {
       await controller.repository.client
@@ -113,8 +114,8 @@ class StaffPage extends StatelessWidget {
   Future<void> _edit(BuildContext context, Map<String, dynamic> m) async {
     final p = m['profiles'];
     final userId = '${m['user_id']}';
-    final name = TextEditingController(
-        text: p is Map ? '${p['full_name'] ?? ''}' : '');
+    final name =
+        TextEditingController(text: p is Map ? '${p['full_name'] ?? ''}' : '');
     final pin = TextEditingController();
     bool busy = false;
 
@@ -122,6 +123,7 @@ class StaffPage extends StatelessWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
+          scrollable: true,
           title: const Text('Xodimni tahrirlash'),
           content: SizedBox(
             width: 420,
@@ -155,8 +157,7 @@ class StaffPage extends StatelessWidget {
                       final trimmedName = name.text.trim();
                       final trimmedPin = pin.text.trim();
                       if (trimmedName.isEmpty) {
-                        showError(
-                            context, Exception('Ism kiritilishi shart'));
+                        showError(context, Exception('Ism kiritilishi shart'));
                         return;
                       }
                       if (trimmedPin.isNotEmpty &&
@@ -219,6 +220,7 @@ class StaffPage extends StatelessWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
+          scrollable: true,
           title: const Text('Yangi xodim'),
           content: SizedBox(
             width: 420,
@@ -231,6 +233,7 @@ class StaffPage extends StatelessWidget {
                     decoration: const InputDecoration(labelText: 'Ism')),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: role,
                   decoration: const InputDecoration(labelText: 'Rol'),
                   items: const [
@@ -277,7 +280,8 @@ class StaffPage extends StatelessWidget {
                         final email =
                             'staff+${clubId.substring(0, 8)}.${_randomToken(10)}@velora.local';
                         final password = _randomToken(24);
-                        final result = await controller.repository.client.functions
+                        final result = await controller
+                            .repository.client.functions
                             .invoke('create-staff-account', body: {
                           'club_id': clubId,
                           'email': email,
@@ -289,7 +293,8 @@ class StaffPage extends StatelessWidget {
                         if (userId == null) {
                           throw Exception('Xodim yaratilmadi');
                         }
-                        await controller.repository.client.rpc('set_staff_pin', params: {
+                        await controller.repository.client
+                            .rpc('set_staff_pin', params: {
                           'p_user_id': userId,
                           'p_club_id': clubId,
                           'p_pin': pin.text.trim(),

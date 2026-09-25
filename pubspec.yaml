@@ -19,6 +19,7 @@ dependencies:
   ffi: ^2.2.0
   flutter_libserialport: ^0.6.0
   http: ^1.2.0
+  image_picker: ^1.2.3
 
 dev_dependencies:
   flutter_test:
