@@ -144,7 +144,7 @@ Deno.serve(async (req: Request) => {
     };
 
     if (action === "bootstrap" || action === "me") {
-      const [card, clubResult, botResult, shiftResult, tiersResult, termsResult, unreadResult] = await Promise.all([
+      const [card, clubResult, botResult, shiftResult, tiersResult, termsResult, unreadResult, matchesResult] = await Promise.all([
         playerCard(),
         client.from("clubs").select("id,name,phone,address,latitude,longitude,bot_welcome_photo_url,timezone").eq("id", clubId).single(),
         client.from("club_bots").select("bot_username").eq("club_id", clubId).eq("active", true).limit(1).maybeSingle(),
@@ -167,6 +167,9 @@ Deno.serve(async (req: Request) => {
               .eq("club_id", clubId).eq("sender_type", "ADMIN").is("read_at", null)
               .eq("customers.telegram_id", verified.tgId)
           : Promise.resolve({ count: 0 }),
+        // "Найти соперника" teaser on the home screen.
+        client.from("match_requests").select("id", { count: "exact", head: true })
+          .eq("club_id", clubId).eq("status", "OPEN").gt("play_at", new Date(Date.now() - 3600_000).toISOString()),
       ]);
       const lateUntilActive = clubConfig.late_until && new Date(clubConfig.late_until).getTime() > Date.now();
       // bot_player_card now returns the active reservation inline (see
@@ -198,6 +201,7 @@ Deno.serve(async (req: Request) => {
         levelUp,
         termsAccepted: Boolean(termsResult.data?.terms_accepted_at),
         unreadChat: (unreadResult as { count?: number | null }).count ?? 0,
+        openMatches: matchesResult.count ?? 0,
       });
     }
 
@@ -383,6 +387,49 @@ Deno.serve(async (req: Request) => {
         }));
       }
       return json({ ok: true, message: created });
+    }
+
+    // "Найти соперника": state changes only through the match_* RPCs; the
+    // Telegram side (broadcast, confirmations, relayed messages) is done by
+    // the match-notify edge function the DB triggers fire.
+    if (action.startsWith("match_")) {
+      const card = await playerCard();
+      if (!card) return json({ error: "CONTACT_REQUIRED" }, 409);
+      const id = String(payload.id ?? "");
+      const rpc = async (fn: string, args: Record<string, unknown>) => {
+        const { data, error } = await client.rpc(fn, args);
+        if (error) throw error;
+        return json(data ?? {});
+      };
+      if (action === "match_board") return rpc("match_board", { p_club_id: clubId, p_customer_id: card.id });
+      if (action !== "match_create" && !/^[0-9a-f-]{36}$/i.test(id)) return json({ ok: false, reason: "NOT_FOUND" });
+      if (action === "match_create") {
+        // "now" or "HH:MM" in the club's zone -- today, or tomorrow when that
+        // time has already passed (a 00:30 game picked at 22:00).
+        let playAt = new Date();
+        const hm = /^(\d{1,2}):(\d{2})$/.exec(String(payload.when ?? "now"));
+        if (hm) {
+          const today = localDay(zone);
+          playAt = zonedTimeToUtc(today.y, today.mo, today.d, Number(hm[1]), Number(hm[2]), zone);
+          if (playAt.getTime() < Date.now() - 5 * 60_000) {
+            const next = localDay(zone, 1);
+            playAt = zonedTimeToUtc(next.y, next.mo, next.d, Number(hm[1]), Number(hm[2]), zone);
+          }
+        }
+        return rpc("match_create", {
+          p_club_id: clubId, p_customer_id: card.id, p_play_at: playAt.toISOString(),
+          p_level: String(payload.level ?? "MIDDLE"), p_comment: String(payload.comment ?? "").slice(0, 200),
+        });
+      }
+      if (action === "match_accept") return rpc("match_accept", { p_match_id: id, p_customer_id: card.id });
+      if (action === "match_leave") return rpc("match_leave", { p_match_id: id, p_customer_id: card.id });
+      if (action === "match_cancel") return rpc("match_cancel", { p_match_id: id, p_customer_id: card.id });
+      if (action === "match_thread") return rpc("match_thread", { p_match_id: id, p_customer_id: card.id });
+      if (action === "match_send") {
+        const message = String(payload.message ?? "").trim();
+        if (!message || message.length > 1000) return json({ error: "BAD_MESSAGE" }, 400);
+        return rpc("match_send", { p_match_id: id, p_customer_id: card.id, p_body: message });
+      }
     }
 
     if (action === "cancel_reservation") {
