@@ -11,8 +11,8 @@ Uzbek subtitles. Built with [Remotion](https://www.remotion.dev).
 | `capture/capture.mjs` | Opens `miniapp/client-webapp.html` in Chromium with BILLION's club data and a demo client, saves the screens |
 | `BILLION_subtitles_uz.srt` | Subtitles with exact timings |
 | `BILLION_ovoz_ssenariy.txt` | Voice-over script with timings |
-| `voice/voice.wav` | Recorded voice-over (27 lines, one file) |
-| `voice/mix.py` | Cuts the recording into lines, places each on its subtitle, adds generated background music → `voice/mix.wav` |
+| `voice/voice.ogg` | Recorded voice-over, read along with the video (one take) |
+| `voice/mix.py` | Cleans up the recording, lays it on the timeline at `OFFSET`, adds generated background music ducked under the voice → `voice/mix.wav` |
 
 ## Render
 
@@ -28,9 +28,8 @@ npx remotion ffmpeg -i out/reel.mp4 -i voice/mix.wav -map 0:v -map 1:a \
   -movflags +faststart out/BILLION_reel.mp4
 ```
 
-`mix.py`'s segment list matches the current `voice.wav`; a new recording
-needs its silence-detected segments (and the two lines split by a pause)
-updated.
+`OFFSET` (1.2 s) lines the current take up with the subtitle starts; a new
+take read along with the video only needs that number re-checked.
 
 ## Next: natural voice with Navoiy TTS
 
