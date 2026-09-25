@@ -325,19 +325,39 @@ async function shiftsInDay(sb: SupabaseClient, clubId: string, from: string, to:
   const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT)
     .eq("club_id", clubId).lt("opened_at", to).or(`closed_at.is.null,closed_at.gt."${from}"`)
     .order("opened_at", { ascending: true });
-  return ((data ?? []) as unknown as ShiftRow[]).filter((s) =>
+  const shifts = ((data ?? []) as unknown as ShiftRow[]).filter((s) =>
     !s.closed_at || new Date(s.closed_at).getTime() - new Date(s.opened_at).getTime() >= 60_000);
+  // A closed shift has its expected cash saved; an open one is counted now.
+  await Promise.all(shifts.filter((s) => !s.closed_at).map(async (s) => {
+    const { data: cash } = await sb.rpc("bot_shift_expected_cash", { p_shift_id: s.id });
+    if (cash != null) s.expected_cash = Number(cash);
+  }));
+  return shifts;
 }
 
-function shiftLines(shifts: ShiftRow[], timeZone: string) {
+const signedMoney = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "") + money(Math.abs(n));
+
+function shiftCashLines(s: ShiftRow, cur: string) {
+  if (s.expected_cash == null) return "";
+  let text = `\n💰 В кассе должно быть: <b>${money(s.expected_cash)} ${cur}</b>`;
+  if (s.closed_at && s.actual_cash != null) {
+    const diff = Number(s.difference ?? s.actual_cash - s.expected_cash);
+    text += `\n💵 Сдано: ${money(s.actual_cash)} ${cur}` +
+      (diff === 0 ? " ✅" : ` · ${diff > 0 ? "излишек" : "недостача"} <b>${signedMoney(diff)} ${cur}</b> ⚠️`);
+  }
+  return text;
+}
+
+function shiftLines(shifts: ShiftRow[], cfg: OwnerBotConfig) {
   if (shifts.length === 0) return "Смена не открывалась.";
   return shifts.map((s) => {
     const opener = s.opener?.full_name ? ` · ${esc(s.opener.full_name)}` : "";
     const closer = s.closer?.full_name ? ` · ${esc(s.closer.full_name)}` : "";
-    return `🟢 Открыта: <b>${shortDateTime(s.opened_at, timeZone)}</b>${opener}\n` +
+    return `🟢 Открыта: <b>${shortDateTime(s.opened_at, cfg.timezone)}</b>${opener}\n` +
       (s.closed_at
-        ? `🔴 Закрыта: <b>${shortDateTime(s.closed_at, timeZone)}</b>${closer}`
-        : "⏳ Смена ещё не закрыта");
+        ? `🔴 Закрыта: <b>${shortDateTime(s.closed_at, cfg.timezone)}</b>${closer}`
+        : "⏳ Смена ещё не закрыта") +
+      shiftCashLines(s, cfg.currency_suffix);
   }).join("\n\n");
 }
 
@@ -355,7 +375,7 @@ async function showDayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: nu
 
   const text =
     `📊 <b>Отчёт за ${fmtDateRu(y, mo, d)}</b>\n\n` +
-    `${shiftLines(shifts, cfg.timezone)}\n${DIVIDER}\n\n` +
+    `${shiftLines(shifts, cfg)}\n${DIVIDER}\n\n` +
     reportBody(data, cfg);
 
   await send(cfg.bot_token, chatId, text, {
@@ -375,12 +395,16 @@ type ShiftRow = {
   status: string;
   opened_at: string;
   closed_at: string | null;
+  opening_cash: number | null;
+  expected_cash: number | null;
+  actual_cash: number | null;
+  difference: number | null;
   opener: { full_name: string | null } | null;
   closer: { full_name: string | null } | null;
 };
 
 const SHIFT_SELECT =
-  "id,status,opened_at,closed_at," +
+  "id,status,opened_at,closed_at,opening_cash,expected_cash,actual_cash,difference," +
   "opener:profiles!cash_shifts_opened_by_fkey(full_name),closer:profiles!cash_shifts_closed_by_fkey(full_name)";
 
 async function shiftById(sb: SupabaseClient, clubId: string, id: string): Promise<ShiftRow | null> {
@@ -488,6 +512,10 @@ async function sendDayReportExcel(sb: SupabaseClient, cfg: OwnerBotConfig, chatI
       s.closed_at
         ? ["Смена закрыта", fmtDateTimeRu(s.closed_at, cfg.timezone), s.closer?.full_name ?? ""]
         : ["Смена закрыта", "ещё не закрыта"],
+      ["В кассе должно быть", s.expected_cash ?? ""],
+      ...(s.closed_at && s.actual_cash != null
+        ? [["Сдано", s.actual_cash], ["Разница", s.difference ?? s.actual_cash - (s.expected_cash ?? 0)]]
+        : []),
     ]),
     [],
     ...reportExcelRows(report, top ?? [], cfg),
