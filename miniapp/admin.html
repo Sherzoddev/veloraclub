@@ -89,6 +89,18 @@ button,input,textarea{font:inherit;color:inherit}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,16px);width:min(420px,calc(100% - 32px));background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;opacity:0;pointer-events:none;transition:.25s;z-index:60}
 .toast.show{opacity:1;transform:translate(-50%,0)}
+.hint{color:var(--muted);font-size:12.5px;line-height:1.5;margin:-4px 0 12px}
+.design-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
+.design-opt{border:1px solid var(--line);background:var(--surface);border-radius:15px;padding:7px 7px 10px;text-align:left;transition:border-color .2s ease,box-shadow .2s ease,transform .15s ease}
+.design-opt:active{transform:scale(.97)}
+.design-opt.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 8px 22px rgba(76,158,255,.18)}
+.design-card{position:relative;aspect-ratio:2.1;border-radius:11px;border:1px solid;background:#050807 center/cover no-repeat;padding:8px 9px;overflow:hidden;color:#fff}
+.design-card b{display:block;max-width:72%;font-size:8.5px;letter-spacing:2.6px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.design-card small{display:block;font-size:6px;letter-spacing:1.6px;color:#b8c5c1;margin-top:2px}
+.design-card .dc-tier{position:absolute;left:9px;bottom:8px;font-size:9.5px;font-weight:800}
+.design-card .dc-check{position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#04101e;display:grid;place-items:center;font-size:12px;font-weight:900;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.design-name{font-size:13px;font-weight:700;margin:8px 2px 1px}
+.design-sub{font-size:11px;color:var(--muted);margin:0 2px;line-height:1.35}
 </style>
 </head>
 <body>
@@ -156,7 +168,7 @@ function shell(inner){const app=document.querySelector('#app');app.classList.rem
 function renderHome(){
   const c=state.club||{};
   shell(`${topBar(c.name||'Клуб')}
-    <div class="card"><h3>👋 Панель администратора</h3><p>Здесь — брони на подтверждение, чат с клиентами, акции, фото и режим работы клуба.</p></div>
+    <div class="card"><h3>👋 Панель администратора</h3><p>Здесь — брони на подтверждение, чат с клиентами, акции, фото, дизайн клубной карты и режим работы клуба.</p></div>
     <div class="card" onclick="switchTab('bookings')"><h3>📅 Ожидают подтверждения</h3><p>${state.counts.pendingBookings||0} броней</p></div>
     <div class="card" onclick="switchTab('chat')"><h3>💬 Непрочитанные сообщения</h3><p>${state.counts.unreadChats||0} чатов</p></div>
   `);
@@ -366,6 +378,10 @@ async function renderSettings(){
     <div class="field"><label>Режим работы (как видят клиенты)</label><input id="sHours" value="${escapeHtml(s.workHoursText||'')}" placeholder="10:00 — 02:00"></div>
     <button class="btn primary full" onclick="saveSettings()">Сохранить тексты</button>
 
+    <div class="section-title">Дизайн клубной карты</div>
+    <p class="hint">Так выглядит карта клиента в приложении клуба. Выберите ту, что подходит вашему клубу, — клиенты увидят её при следующем открытии приложения.</p>
+    <div class="design-grid" id="designGrid">${designOptions()}</div>
+
     <div class="section-title">Работаем дольше сегодня</div>
     <div class="card">
       ${s.lateActive?`<p>⏳ Действует до ${escapeHtml(s.lateUntilLabel||'')}${s.lateNote?': '+escapeHtml(s.lateNote):''}</p><button class="btn danger full" style="margin-top:8px" onclick="clearLate()">Снять продление</button>`:`
@@ -381,6 +397,32 @@ async function renderSettings(){
     ${resourcesHtml||'<div class="empty">Столов пока нет</div>'}
   ${tabsHtml()}`;
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>switchTab(b.dataset.tab));icons();
+}
+// Member card looks for the client Mini App (clubs.card_design). Art is
+// served by the same Railway app as this page; ids must match
+// CARD_DESIGNS in admin-webapp and the designs in client-webapp.html.
+const CARD_DESIGNS=[
+  {id:'billiards',name:'Бильярд',sub:'Шар «8», зелёный неон',art:'/assets/member-card-v1.webp',line:'rgba(74,245,178,.76)'},
+  {id:'pyramid',name:'Русская пирамида',sub:'Сукно и белые шары',art:'/assets/cards/pyramid-v1.svg',line:'rgba(233,199,125,.62)'},
+  {id:'playstation',name:'PlayStation',sub:'Геймпад, синий неон',art:'/assets/cards/playstation-v1.svg',line:'rgba(124,140,255,.8)'},
+  {id:'combo',name:'Бильярд + PlayStation',sub:'Для клубов, где есть и то и другое',art:'/assets/cards/combo-v1.svg',line:'rgba(140,150,255,.72)'},
+  {id:'neon',name:'Неон',sub:'Ретро-вейв для игровых клубов',art:'/assets/cards/neon-v1.svg',line:'rgba(255,94,196,.75)'},
+  {id:'gold',name:'Премиум',sub:'Чёрный и золото',art:'/assets/cards/gold-v1.svg',line:'rgba(213,170,84,.8)'},
+];
+function designOptions(){
+  const current=state.settings?.cardDesign||'billiards';
+  const brand=escapeHtml(String(state.settings?.name||state.club?.name||'VELORA').toUpperCase().slice(0,14));
+  return CARD_DESIGNS.map(d=>{const sel=d.id===current;return `<button class="design-opt ${sel?'selected':''}" onclick="pickDesign('${d.id}')"><div class="design-card" style="background-image:url('${d.art}');border-color:${d.line}"><b>${brand}</b><small>MEMBER</small><span class="dc-tier">Участник</span>${sel?'<span class="dc-check">✓</span>':''}</div><div class="design-name">${d.name}</div><div class="design-sub">${d.sub}</div></button>`}).join('');
+}
+function paintDesigns(){const grid=document.querySelector('#designGrid');if(grid)grid.innerHTML=designOptions()}
+async function pickDesign(id){
+  const prev=state.settings?.cardDesign||'billiards';
+  if(id===prev||state.designBusy)return;
+  state.designBusy=true;state.settings.cardDesign=id;paintDesigns();
+  try{tg?.HapticFeedback?.selectionChanged()}catch(_){}
+  const r=await api('settings_set_card_design',{design:id});
+  state.designBusy=false;
+  if(r.ok)toast('Дизайн карты сохранён');else{state.settings.cardDesign=prev;paintDesigns();toast('Не удалось сохранить')}
 }
 async function saveSettings(){
   const payload={name:document.querySelector('#sName').value.trim(),phone:document.querySelector('#sPhone').value.trim(),address:document.querySelector('#sAddress').value.trim(),workHoursText:document.querySelector('#sHours').value.trim()};

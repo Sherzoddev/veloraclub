@@ -146,7 +146,7 @@ Deno.serve(async (req: Request) => {
     if (action === "bootstrap" || action === "me") {
       const [card, clubResult, botResult, shiftResult, tiersResult, termsResult, unreadResult, matchesResult] = await Promise.all([
         playerCard(),
-        client.from("clubs").select("id,name,phone,address,latitude,longitude,bot_welcome_photo_url,timezone").eq("id", clubId).single(),
+        client.from("clubs").select("id,name,phone,address,latitude,longitude,bot_welcome_photo_url,timezone,card_design").eq("id", clubId).single(),
         client.from("club_bots").select("bot_username").eq("club_id", clubId).eq("active", true).limit(1).maybeSingle(),
         // Not cached alongside clubConfig — a closed shift must stop showing
         // the club as open right away, not up to 60s later.
@@ -188,6 +188,7 @@ Deno.serve(async (req: Request) => {
           lat: clubResult.data?.latitude ?? null,
           lng: clubResult.data?.longitude ?? null,
           photo: clubResult.data?.bot_welcome_photo_url,
+          cardDesign: clubResult.data?.card_design ?? "billiards",
           hours: clubConfig.work_hours_text || "10:00 — 02:00",
           botUsername: botResult.data?.bot_username,
           hasPlaystation: clubConfig.has_playstation !== false,

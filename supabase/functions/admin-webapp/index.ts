@@ -73,6 +73,10 @@ function dayLabel(iso: string, zone: string) {
     .format(new Date(iso));
 }
 
+// Member card designs the client Mini App knows how to draw -- keep in sync
+// with the clubs_card_design_check constraint and client-webapp.html.
+const CARD_DESIGNS = new Set(["billiards", "pyramid", "playstation", "combo", "neon", "gold"]);
+
 const EXT_BY_TYPE: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 async function uploadPhoto(clubId: string, prefix: string, dataUrl: string): Promise<string> {
   const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(dataUrl);
@@ -306,7 +310,7 @@ Deno.serve(async (req: Request) => {
 
     if (action === "settings_get") {
       const { data, error } = await client.from("clubs")
-        .select("name,phone,address,work_hours_text,late_note,late_until,bot_welcome_photo_url,timezone")
+        .select("name,phone,address,work_hours_text,late_note,late_until,bot_welcome_photo_url,timezone,card_design")
         .eq("id", clubId).single();
       if (error) throw error;
       const lateActive = Boolean(data.late_until && new Date(data.late_until).getTime() > Date.now());
@@ -315,6 +319,7 @@ Deno.serve(async (req: Request) => {
         lateNote: data.late_note, lateActive,
         lateUntilLabel: lateActive ? dayLabel(data.late_until, data.timezone ?? zone) : null,
         welcomePhoto: data.bot_welcome_photo_url,
+        cardDesign: data.card_design ?? "billiards",
       } });
     }
 
@@ -349,6 +354,14 @@ Deno.serve(async (req: Request) => {
       const { error } = await client.from("clubs").update({ bot_welcome_photo_url: photoUrl }).eq("id", clubId);
       if (error) throw error;
       return json({ ok: true, photoUrl });
+    }
+
+    if (action === "settings_set_card_design") {
+      const design = String(payload.design ?? "");
+      if (!CARD_DESIGNS.has(design)) return json({ error: "BAD_DESIGN" }, 400);
+      const { error } = await client.from("clubs").update({ card_design: design }).eq("id", clubId);
+      if (error) throw error;
+      return json({ ok: true });
     }
 
     return json({ error: "UNKNOWN_ACTION" }, 404);
