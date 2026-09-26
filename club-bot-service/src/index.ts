@@ -1003,8 +1003,8 @@ async function joinWaitlist(
   await send(
     token, chatId,
     L(lang,
-      "⏳ <b>Вы в очереди!</b>\n\nКак только освободится стол — вас посадят. За каждые 10 минут ожидания копится <b>скидка 1000 сум</b>.",
-      "⏳ <b>Siz navbatdasiz!</b>\n\nJoy bo'shashi bilan sizni o'tqazishadi. Har 10 daqiqa kutish uchun <b>1000 so'm chegirma</b> to'planadi."),
+      "⏳ <b>Вы в очереди!</b>\n\nКак только освободится стол — вас посадят. Скидка <b>5 000 сум</b> — сразу, и она растёт каждые 10 минут ожидания: за час — <b>15 000 сум</b>.",
+      "⏳ <b>Siz navbatdasiz!</b>\n\nJoy bo'shashi bilan sizni o'tqazishadi. <b>5 000 so'm</b> chegirma — darhol, u har 10 daqiqa kutishda oshib boradi: bir soatda — <b>15 000 so'm</b>."),
     { reply_markup: clientKeyboardFor(lang) },
   );
 }
