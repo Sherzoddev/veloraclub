@@ -18,6 +18,22 @@ export const RemotionRoot: React.FC = () => (
         />
       ))}
     </Folder>
-    <Composition id="VeloraReel" component={Reel} width={1080} height={1920} fps={30} durationInFrames={REEL_DURATION} />
+    <Composition
+      id="VeloraReel"
+      component={Reel}
+      width={1080}
+      height={1920}
+      fps={30}
+      durationInFrames={REEL_DURATION}
+    />
+    <Composition
+      id="VeloraReelClean"
+      component={Reel}
+      defaultProps={{ subtitles: false }}
+      width={1080}
+      height={1920}
+      fps={30}
+      durationInFrames={REEL_DURATION}
+    />
   </>
 );

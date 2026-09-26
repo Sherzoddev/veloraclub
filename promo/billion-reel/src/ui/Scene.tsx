@@ -19,11 +19,15 @@ export const Backdrop: React.FC = () => {
   );
 };
 
+/** Off for the clean cut (VeloraReelClean): no subtitles, no voice. */
+export const SubtitlesOn = React.createContext(true);
+
 /** Karaoke-style subtitles, kept above Instagram's bottom caption area. */
 export const Subtitles: React.FC<{ lines: Line[] }> = ({ lines }) => {
   const frame = useCurrentFrame();
+  const on = React.useContext(SubtitlesOn);
   const line = lines.find((l) => frame >= l.from && frame < l.to);
-  if (!line) return null;
+  if (!on || !line) return null;
   const words = line.text.split(" ");
   const span = Math.max(1, (line.to - line.from) * 0.7);
   const shown = ((frame - line.from) / span) * words.length;

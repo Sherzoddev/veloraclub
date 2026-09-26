@@ -4,8 +4,13 @@ import { fade } from "@remotion/transitions/fade";
 import { Intro } from "./scenes/Intro";
 import { Start, Card, Tables, Booking, Bonus, Match, Chat, Referral, Receipt, Club } from "./scenes/Features";
 import { Outro } from "./scenes/Outro";
+import { SubtitlesOn } from "./ui/Scene";
 
-export const SCENES: { id: string; component: React.FC; durationInFrames: number }[] = [
+export const SCENES: {
+  id: string;
+  component: React.FC;
+  durationInFrames: number;
+}[] = [
   { id: "Intro", component: Intro, durationInFrames: 160 },
   { id: "Start", component: Start, durationInFrames: 330 },
   { id: "Card", component: Card, durationInFrames: 310 },
@@ -21,26 +26,27 @@ export const SCENES: { id: string; component: React.FC; durationInFrames: number
 ];
 
 export const TRANSITION = 20;
-export const REEL_DURATION =
-  SCENES.reduce((s, x) => s + x.durationInFrames, 0) - TRANSITION * (SCENES.length - 1);
+export const REEL_DURATION = SCENES.reduce((s, x) => s + x.durationInFrames, 0) - TRANSITION * (SCENES.length - 1);
 
-export const Reel: React.FC = () => (
-  <TransitionSeries>
-    {SCENES.flatMap((s, i) => {
-      const seq = (
-        <TransitionSeries.Sequence key={s.id} name={s.id} durationInFrames={s.durationInFrames}>
-          <s.component />
-        </TransitionSeries.Sequence>
-      );
-      if (i === 0) return [seq];
-      return [
-        <TransitionSeries.Transition
-          key={`${s.id}-t`}
-          presentation={fade()}
-          timing={linearTiming({ durationInFrames: TRANSITION })}
-        />,
-        seq,
-      ];
-    })}
-  </TransitionSeries>
+export const Reel: React.FC<{ subtitles?: boolean }> = ({ subtitles = true }) => (
+  <SubtitlesOn.Provider value={subtitles}>
+    <TransitionSeries>
+      {SCENES.flatMap((s, i) => {
+        const seq = (
+          <TransitionSeries.Sequence key={s.id} name={s.id} durationInFrames={s.durationInFrames}>
+            <s.component />
+          </TransitionSeries.Sequence>
+        );
+        if (i === 0) return [seq];
+        return [
+          <TransitionSeries.Transition
+            key={`${s.id}-t`}
+            presentation={fade()}
+            timing={linearTiming({ durationInFrames: TRANSITION })}
+          />,
+          seq,
+        ];
+      })}
+    </TransitionSeries>
+  </SubtitlesOn.Provider>
 );

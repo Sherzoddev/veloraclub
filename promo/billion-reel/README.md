@@ -19,6 +19,8 @@ Uzbek subtitles. Built with [Remotion](https://www.remotion.dev).
 ```bash
 npm ci
 npx remotion render VeloraReel out/reel.mp4 --codec=h264 --crf=16
+# no subtitles, no sound:
+npx remotion render VeloraReelClean out/reel_clean.mp4 --codec=h264 --crf=16 --muted
 # (in a sandbox without Chrome: --browser-executable=/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell)
 
 pip install numpy scipy soundfile
