@@ -105,7 +105,7 @@ const icons=()=>window.lucide?.createIcons({attrs:{'stroke-width':1.8}});
 window.addEventListener('icons-ready',icons);
 const money=n=>Math.round(Number(n||0)).toLocaleString('ru-RU');
 const escapeHtml=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const state={tab:'home',club:null,role:null,bookings:[],threads:[],thread:null,activeCustomer:null,promos:[],resources:[]};
+const state={tab:'home',club:null,role:null,bookings:[],threads:[],thread:null,activeCustomer:null,promos:[],resources:[],tournaments:[]};
 function toast(msg){const e=document.querySelector('#toast');e.textContent=msg;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2600)}
 const api=async(action,payload={})=>{
   try{
@@ -159,6 +159,7 @@ function renderHome(){
     <div class="card"><h3>👋 Панель администратора</h3><p>Здесь — брони на подтверждение, чат с клиентами, акции, фото и режим работы клуба.</p></div>
     <div class="card" onclick="switchTab('bookings')"><h3>📅 Ожидают подтверждения</h3><p>${state.counts.pendingBookings||0} броней</p></div>
     <div class="card" onclick="switchTab('chat')"><h3>💬 Непрочитанные сообщения</h3><p>${state.counts.unreadChats||0} чатов</p></div>
+    <div class="card" onclick="renderTournaments()"><h3>🏆 Турниры</h3><p>Создать турнир, открыть запись, список участников в Excel</p></div>
   `);
 }
 
@@ -337,6 +338,56 @@ async function savePromo(id){
   if(r.ok)renderPromos();else toast('Не удалось сохранить')
 }
 async function deletePromo(id){const r=await api('promotion_delete',{id});if(r.ok)renderPromos();else toast('Не удалось удалить')}
+
+// Tournaments: create one, open/close sign-up (clients sign up in the client
+// Mini App with name, surname and phone), see who signed up, get the list as
+// an Excel file in this chat with the bot.
+async function renderTournaments(){
+  shell(`${topBar('Турниры',"switchTab('home')")}<div class="skeleton"></div>`);
+  const r=await api('tournaments_list');
+  state.tournaments=r.tournaments||[];
+  paintTournaments();
+}
+function paintTournaments(){
+  const list=state.tournaments;
+  shell(`${topBar('Турниры',"switchTab('home')")}<button class="btn primary full" style="margin-bottom:12px" onclick="editTournament(null)">+ Создать турнир</button>${list.length?list.map(x=>{
+    const status=x.past?'Прошёл':x.registration_open?'🟢 Запись открыта':'🔒 Запись закрыта';
+    return `<div class="card"><h3>${escapeHtml(x.title)}</h3><p>🗓 ${escapeHtml(x.when)} · ${status}</p><p>👥 Участников: ${x.participants}${x.max_participants?' из '+x.max_participants:''}</p>
+      <div class="row"><button class="btn ghost" onclick="showParticipants('${x.id}')">Участники</button><button class="btn ghost" onclick="exportTournament('${x.id}',this)">📥 Excel</button></div>
+      <div class="row"><button class="btn ghost" onclick="editTournament('${x.id}')">Изменить</button>${x.past?'':`<button class="btn ${x.registration_open?'danger':'primary'}" onclick="toggleTournament('${x.id}',${!x.registration_open})">${x.registration_open?'Закрыть запись':'Открыть запись'}</button>`}</div></div>`}).join(''):'<div class="empty">Турниров пока нет</div>'}`);
+}
+async function toggleTournament(id,open){const r=await api('tournament_save',{id,registrationOpen:open});if(r.ok){const x=state.tournaments.find(v=>v.id===id);if(x)x.registration_open=open;paintTournaments();toast(open?'Запись открыта':'Запись закрыта')}else toast('Не удалось сохранить')}
+function editTournament(id){
+  const x=id?state.tournaments.find(v=>v.id===id):null;
+  shell(`${topBar(x?'Изменить турнир':'Новый турнир',"renderTournaments()")}
+    <div class="field"><label>Название</label><input id="tTitle" maxlength="120" placeholder="Например: Турнир по русскому бильярду" value="${x?escapeHtml(x.title):''}"></div>
+    <div class="field"><label>Дата и время начала</label><input id="tStart" type="datetime-local" style="color-scheme:dark" value="${x?x.startsLocal:''}"></div>
+    <div class="field"><label>Максимум участников (пусто — без ограничения)</label><input id="tMax" type="number" inputmode="numeric" min="1" max="1000" value="${x&&x.max_participants?x.max_participants:''}"></div>
+    <div class="field"><label>Описание: правила, взнос, призы</label><textarea id="tDesc" maxlength="1000">${x?escapeHtml(x.description||''):''}</textarea></div>
+    <label style="display:flex;align-items:center;gap:10px;margin:4px 0 16px;font-size:14px"><input id="tOpen" type="checkbox" style="width:20px;height:20px" ${!x||x.registration_open?'checked':''}> Запись открыта</label>
+    <button class="btn primary full" onclick="saveTournament('${id||''}')">Сохранить</button>
+    ${x?'<button class="btn danger full" style="margin-top:10px" id="deleteTournamentBtn">Удалить турнир</button>':''}`);
+  const del=document.querySelector('#deleteTournamentBtn');if(del)del.onclick=()=>deleteTournament(id);
+}
+async function saveTournament(id){
+  const title=document.querySelector('#tTitle').value.trim(),startsAt=document.querySelector('#tStart').value;
+  if(!title){toast('Введите название');return}
+  if(!startsAt){toast('Укажите дату и время');return}
+  const r=await api('tournament_save',{id:id||undefined,title,startsAt,description:document.querySelector('#tDesc').value,maxParticipants:document.querySelector('#tMax').value||0,registrationOpen:document.querySelector('#tOpen').checked});
+  if(r.ok){toast(id?'Сохранено':'Турнир создан');renderTournaments()}else toast(r.error==='BAD_DATE'?'Неверная дата':'Не удалось сохранить')
+}
+async function deleteTournament(id){
+  const ok=await new Promise(res=>{if(tg?.showConfirm){try{tg.showConfirm('Удалить турнир вместе со списком участников?',v=>res(!!v));return}catch(_){}}res(window.confirm('Удалить турнир вместе со списком участников?'))});
+  if(!ok)return;const r=await api('tournament_delete',{id});if(r.ok)renderTournaments();else toast('Не удалось удалить')
+}
+async function showParticipants(id){
+  const x=state.tournaments.find(v=>v.id===id);
+  shell(`${topBar('Участники',"renderTournaments()")}<div class="skeleton"></div>`);
+  const r=await api('tournament_participants',{id});
+  const list=r.participants||[];
+  shell(`${topBar('Участники',"renderTournaments()")}<div class="card"><h3>${escapeHtml(x?.title||'Турнир')}</h3><p>🗓 ${escapeHtml(x?.when||'')} · записалось: ${list.length}</p><div class="row"><button class="btn primary" onclick="exportTournament('${id}',this)">📥 Скачать Excel</button></div></div>${list.length?list.map((p,i)=>`<div class="card"><h3>${i+1}. ${escapeHtml(p.last_name)} ${escapeHtml(p.first_name)}</h3><p>📞 <a href="tel:${escapeHtml(p.phone)}" style="color:var(--accent)">${escapeHtml(p.phone)}</a> · ${escapeHtml(p.when)}</p></div>`).join(''):'<div class="empty">Пока никто не записался</div>'}`);
+}
+async function exportTournament(id,btn){if(btn)btn.disabled=true;const r=await api('tournament_export',{id});if(btn)btn.disabled=false;toast(r.ok?'Excel-файл отправлен вам в чат с ботом':'Не удалось отправить файл')}
 
 async function renderResourcesInline(){
   const r=await api('resources_list');
