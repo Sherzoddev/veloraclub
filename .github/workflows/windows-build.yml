@@ -1,0 +1,52 @@
+# Builds the Windows desk app (velora_club.exe) on a Windows runner, so a new
+# build doesn't need a developer's PC. Runs on every push to main that touches
+# the app, or by hand from the Actions tab. The ready Release folder is
+# attached to the run as the "velora_club-windows" artifact.
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'windows/**'
+      - 'assets/**'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/windows-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.5
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build windows --release
+
+      # Copy the whole Release folder, not just the exe: the exe needs the
+      # DLLs and data/ next to it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: velora_club-windows
+          path: build/windows/x64/runner/Release
+          retention-days: 30
+          if-no-files-found: error
