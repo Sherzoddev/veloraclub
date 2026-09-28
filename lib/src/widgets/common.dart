@@ -470,9 +470,11 @@ class CategoryIconChip extends StatelessWidget {
   }
 }
 
-/// A product tile for the sale grids — photo on top at a fixed 3:2 ratio
-/// (contain-fit, so the whole item stays visible instead of a cover-crop
-/// clipping it), name/price/stock stacked as separate lines underneath.
+/// A product tile for the sale grids — photo on top filling whatever the
+/// grid cell leaves above the text (contain-fit, so the whole item stays
+/// visible instead of a cover-crop clipping it), name/price/stock stacked as
+/// separate lines underneath. The photo gives way, never the text: a square
+/// photo pushed the stock line out of the cell on narrower screens.
 /// Mirrors the club's other (web-based) POS product card 1:1, down to the
 /// price being plain ink rather than colored and stock status color-coded
 /// by how low it is, not just in/out.
@@ -517,10 +519,8 @@ class ProductGridCard extends StatelessWidget {
           onTap: onTap,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
             children: [
-              AspectRatio(
-                aspectRatio: 1,
+              Expanded(
                 child: Container(
                   width: double.infinity,
                   alignment: Alignment.center,
