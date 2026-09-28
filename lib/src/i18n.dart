@@ -261,6 +261,8 @@ const Map<String, String> _ru = {
   "O'RTACHA CHEK": 'СРЕДНИЙ ЧЕК',
   "KASSADA BO'LISHI KERAK": 'ДОЛЖНО БЫТЬ В КАССЕ',
   'Bugun': 'Сегодня',
+  "Bu sozlamani faqat klub egasi o'zgartira oladi":
+      'Эту настройку может менять только владелец клуба',
   'Hafta': 'Неделя',
   'Oy': 'Месяц',
   'Yil': 'Год',

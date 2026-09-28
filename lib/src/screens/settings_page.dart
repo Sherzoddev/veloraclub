@@ -274,10 +274,27 @@ class _SettingsPageState extends State<SettingsPage> {
             );
             if (confirmed != true) return;
           }
-          await widget.controller.repository.client
-              .from('clubs')
-              .update({field: v}).eq('id', widget.controller.context!.clubId);
-          widget.controller.refresh();
+          try {
+            // An update the row policy refuses comes back as zero rows, not
+            // an error -- select them so a refused switch says so.
+            final updated = await widget.controller.repository.client
+                .from('clubs')
+                .update({field: v})
+                .eq('id', widget.controller.context!.clubId)
+                .select('id');
+            if ((updated as List).isEmpty) {
+              if (context.mounted) {
+                showError(context, tr('Bu sozlamani faqat klub egasi o\'zgartira oladi'));
+              }
+              return;
+            }
+            // context.club is loaded once at startup; plain refresh() kept the
+            // old flag, so the switch snapped back and PlayStation stayed
+            // hidden until the app was restarted.
+            await widget.controller.reloadContext();
+          } catch (e) {
+            if (context.mounted) showError(context, e);
+          }
         },
       ),
     ]);
