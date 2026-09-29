@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../i18n.dart';
 import '../theme.dart';
 import '../utils.dart';
 
@@ -497,16 +498,23 @@ class ProductGridCard extends StatelessWidget {
         ? Color(int.parse('${cat['color']}'.replaceFirst('#', 'FF'), radix: 16))
         : null;
     final stock = (product['stock_quantity'] as num?) ?? 0;
+    // Tea by the cup, a hookah, a bottle deposit: no stock to count, always
+    // on sale.
+    final untracked = product['track_stock'] == false;
     final imageUrl = product['image_url'] as String?;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
-    final statusColor = stock <= 0
-        ? VColors.red
-        : stock <= 5
-            ? VColors.orange
-            : VColors.green;
-    final statusText = stock <= 0
-        ? 'Mavjud emas'
-        : '${stock == stock.roundToDouble() ? stock.toInt() : stock} ${product['unit'] ?? unitLabel}';
+    final statusColor = untracked
+        ? VColors.green
+        : stock <= 0
+            ? VColors.red
+            : stock <= 5
+                ? VColors.orange
+                : VColors.green;
+    final statusText = untracked
+        ? tr('Sotuvda')
+        : stock <= 0
+            ? tr('Mavjud emas')
+            : '${stock == stock.roundToDouble() ? stock.toInt() : stock} ${product['unit'] ?? unitLabel}';
     return Opacity(
       opacity: onTap == null ? .5 : 1,
       child: Card(

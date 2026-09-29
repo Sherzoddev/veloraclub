@@ -359,4 +359,6 @@ const Map<String, String> _ru = {
   'Yaratish': 'Создать',
   'Zal, sotuvlar, bronlar, mijozlar va hisobotlar — barchasi bitta oynada.': 'Зал, продажи, брони, клиенты и отчёты — всё в одном окне.',
   'faollashtirilgan': 'активирован',
+  'Sotuvda': 'В продаже',
+  'Mavjud emas': 'Нет в наличии',
 };

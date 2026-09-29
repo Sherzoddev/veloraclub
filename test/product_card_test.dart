@@ -35,4 +35,33 @@ void main() {
       expect(stock.bottom, lessThanOrEqualTo(card.bottom));
     });
   }
+
+  // Tea by the cup or a hookah has no stock to count: with track_stock off
+  // the card reads "on sale" instead of "out of stock", even at 0.
+  testWidgets('untracked product reads as on sale at zero stock',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 170,
+            height: 170 / .72,
+            child: ProductGridCard(
+              product: const {
+                'name': 'Кальян',
+                'sale_price': 60000,
+                'stock_quantity': 0,
+                'track_stock': false,
+                'unit': 'шт',
+              },
+              onTap: () {},
+            ),
+          ),
+        ),
+      ),
+    ));
+    expect(tester.takeException(), isNull);
+    expect(find.text('Sotuvda'), findsOneWidget);
+    expect(find.text('Mavjud emas'), findsNothing);
+  });
 }
