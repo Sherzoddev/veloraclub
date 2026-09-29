@@ -226,6 +226,7 @@ class DeviceAccessService {
       'TOKEN_REVOKED': 'Klub tokeni bekor qilingan.',
       'CLUB_NOT_LICENSED': 'Bu klub hali faollashtirilmagan — faollashtirish kodini ham kiriting.',
       'EXPIRED': 'Litsenziya muddati tugagan.',
+      'NO_LICENSE': 'Bu klub hali faollashtirilmagan — faollashtirish kodini kiriting.',
       'LOCKED': 'Juda ko\'p noto\'g\'ri urinish. Keyinroq qayta urinib ko\'ring.',
       'INVALID_PIN': 'PIN 4–6 ta raqamdan iborat bo\'lishi kerak.',
       'BAD_PIN': 'PIN noto\'g\'ri.',
