@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../i18n.dart';
 import '../services/device_access_service.dart';
 import '../theme.dart';
 
@@ -20,6 +21,8 @@ class _LoginPageState extends State<LoginPage> {
   DeviceAccessSnapshot? snapshot;
   bool busy = false;
   String? error;
+  // PIN screen -> "connect to another club": show the connect form again.
+  bool switching = false;
 
   @override
   void initState() {
@@ -52,34 +55,37 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> _activate() async {
-    if (activationCode.text.trim().isEmpty || venueToken.text.trim().isEmpty) {
-      setState(() => error = 'Faollashtirish kodi va venue tokenni kiriting.');
+  /// Activation code + club token -> straight in. The code is optional only
+  /// when this computer is already activated and the token's club already
+  /// has a license (a second till of the same club).
+  Future<void> _connectClub() async {
+    final code = activationCode.text.trim();
+    final token = venueToken.text.trim();
+    final needsCode = snapshot?.phase == DeviceAccessPhase.activation;
+    if (token.isEmpty || (needsCode && code.isEmpty)) {
+      setState(() => error = tr(needsCode
+          ? 'Faollashtirish kodi va klub tokenini kiriting.'
+          : 'Klub tokenini kiriting.'));
       return;
     }
     await _run(() async {
-      final value = await service.activateAndConnect(
-        activationCode: activationCode.text,
-        venueToken: venueToken.text,
-      );
-      if (mounted) setState(() => snapshot = value);
-    });
-  }
-
-  Future<void> _connect() async {
-    if (venueToken.text.trim().isEmpty) {
-      setState(() => error = 'Venue tokenni kiriting.');
-      return;
-    }
-    await _run(() async {
-      final value = await service.connectVenue(venueToken.text);
-      if (mounted) setState(() => snapshot = value);
+      final value = code.isNotEmpty
+          ? await service.activateAndConnect(activationCode: code, venueToken: token)
+          : await service.connectVenue(token);
+      if (mounted) {
+        setState(() {
+          snapshot = value;
+          switching = false;
+          activationCode.clear();
+          venueToken.clear();
+        });
+      }
     });
   }
 
   Future<void> _login() async {
     if (!RegExp(r'^\d{4,6}$').hasMatch(pin.text)) {
-      setState(() => error = 'PIN 4–6 ta raqamdan iborat bo\'lishi kerak.');
+      setState(() => error = tr('PIN 4–6 ta raqamdan iborat bo\'lishi kerak.'));
       return;
     }
     await _run(() => service.loginWithPin(pin.text));
@@ -89,19 +95,19 @@ class _LoginPageState extends State<LoginPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Birinchi xodimlarni yaratish'),
-        content: const Text(
-          'Administrator PIN: 0610\nKassir PIN: 0000\n\n'
-          'Birinchi kirishdan keyin PIN-kodlarni sozlamalarda almashtiring.',
+        title: Text(tr('Birinchi xodimlarni yaratish')),
+        content: Text(
+          'Administrator PIN: 0610\n${tr('Kassir')} PIN: 0000\n\n'
+          '${tr('Birinchi kirishdan keyin PIN-kodlarni sozlamalarda almashtiring.')}',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Bekor qilish'),
+            child: Text(tr('Bekor qilish')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yaratish'),
+            child: Text(tr('Yaratish')),
           ),
         ],
       ),
@@ -130,26 +136,34 @@ class _LoginPageState extends State<LoginPage> {
     if (code.isEmpty) return;
     Clipboard.setData(ClipboardData(text: code));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Qurilma kodi nusxalandi')),
+      SnackBar(content: Text(tr('Qurilma kodi nusxalandi'))),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Row(
-        children: [
-          const Expanded(flex: 5, child: _BrandPanel()),
-          Expanded(
-            flex: 6,
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(40),
-                child: SizedBox(width: 480, child: _content(context)),
+    return ListenableBuilder(
+      listenable: LocaleController.instance,
+      builder: (context, _) => Scaffold(
+        body: Row(
+          children: [
+            const Expanded(flex: 5, child: _BrandPanel()),
+            Expanded(
+              flex: 6,
+              child: Stack(
+                children: [
+                  Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(40),
+                      child: SizedBox(width: 480, child: _content(context)),
+                    ),
+                  ),
+                  const Positioned(top: 20, right: 24, child: _LangSwitch()),
+                ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -163,90 +177,76 @@ class _LoginPageState extends State<LoginPage> {
           if (!busy) ...[
             Icon(Icons.cloud_off_rounded, size: 54, color: VColors.muted),
             const SizedBox(height: 20),
-            Text(error ?? 'Ulanib bo\'lmadi', textAlign: TextAlign.center),
+            Text(error ?? tr('Ulanib bo\'lmadi'), textAlign: TextAlign.center),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: _initialize,
               icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Qayta urinish'),
+              label: Text(tr('Qayta urinish')),
             ),
           ],
         ],
       );
     }
 
-    return switch (snapshot!.phase) {
-      DeviceAccessPhase.activation => _activationForm(context),
-      DeviceAccessPhase.venue => _venueForm(context),
-      DeviceAccessPhase.pin => _pinForm(context),
-    };
+    if (switching || snapshot!.phase != DeviceAccessPhase.pin) {
+      return _connectForm(context);
+    }
+    return _pinForm(context);
   }
 
-  Widget _activationForm(BuildContext context) {
+  Widget _connectForm(BuildContext context) {
+    final needsCode = snapshot!.phase == DeviceAccessPhase.activation;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _heading(
           context,
-          'Qurilmani faollashtirish',
-          'Ushbu qurilma kodini owner-botga yuboring va bot bergan kalitlarni kiriting.',
+          tr(needsCode ? 'Dasturni faollashtirish' : 'Klubga ulash'),
+          tr(needsCode
+              ? 'Faollashtirish kodi va klub tokenini kiriting — shu zahoti kirasiz.'
+              : 'Klub tokenini kiriting. Klub hali faollashtirilmagan bo\'lsa, faollashtirish kodini ham kiriting.'),
         ),
         _DeviceCodeCard(code: snapshot!.deviceCode, onCopy: _copyDeviceCode),
         const SizedBox(height: 24),
         TextField(
           controller: activationCode,
           textCapitalization: TextCapitalization.characters,
-          decoration: const InputDecoration(
-            labelText: 'Faollashtirish kodi',
-            prefixIcon: Icon(Icons.key_rounded),
+          decoration: InputDecoration(
+            labelText: tr('Faollashtirish kodi'),
+            helperText: needsCode ? null : tr('Ixtiyoriy — faqat yangi klub uchun'),
+            prefixIcon: const Icon(Icons.key_rounded),
           ),
         ),
         const SizedBox(height: 14),
         TextField(
           controller: venueToken,
-          decoration: const InputDecoration(
-            labelText: 'Venue token',
-            prefixIcon: Icon(Icons.storefront_rounded),
+          decoration: InputDecoration(
+            labelText: tr('Klub tokeni'),
+            prefixIcon: const Icon(Icons.storefront_rounded),
           ),
-          onSubmitted: (_) => _activate(),
+          onSubmitted: (_) => _connectClub(),
         ),
         _message(),
         const SizedBox(height: 22),
-        _primaryButton('Faollashtirish va ulash', _activate),
+        _primaryButton(tr('Kirish'), _connectClub),
         const SizedBox(height: 10),
-        TextButton.icon(
-          onPressed: busy ? null : _initialize,
-          icon: const Icon(Icons.refresh_rounded),
-          label: const Text('Holatni tekshirish'),
-        ),
-      ],
-    );
-  }
-
-  Widget _venueForm(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _heading(
-          context,
-          'Zavodga ulanish',
-          'Owner-bot bergan 64 belgili venue tokenni bir marta kiriting.',
-        ),
-        _DeviceCodeCard(code: snapshot!.deviceCode, onCopy: _copyDeviceCode),
-        const SizedBox(height: 24),
-        TextField(
-          controller: venueToken,
-          decoration: const InputDecoration(
-            labelText: 'Venue token',
-            prefixIcon: Icon(Icons.storefront_rounded),
+        if (switching)
+          TextButton.icon(
+            onPressed: busy ? null : () => setState(() {
+              switching = false;
+              error = null;
+            }),
+            icon: const Icon(Icons.arrow_back_rounded),
+            label: Text(tr('Orqaga')),
+          )
+        else
+          TextButton.icon(
+            onPressed: busy ? null : _initialize,
+            icon: const Icon(Icons.refresh_rounded),
+            label: Text(tr('Holatni tekshirish')),
           ),
-          onSubmitted: (_) => _connect(),
-        ),
-        _message(),
-        const SizedBox(height: 22),
-        _primaryButton('Ulash', _connect),
       ],
     );
   }
@@ -258,8 +258,8 @@ class _LoginPageState extends State<LoginPage> {
       children: [
         _heading(
           context,
-          snapshot!.clubName ?? 'Xush kelibsiz',
-          'Ishni davom ettirish uchun xodim PIN-kodini kiriting.',
+          snapshot!.clubName ?? tr('Xush kelibsiz'),
+          tr('Ishni davom ettirish uchun xodim PIN-kodini kiriting.'),
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -273,7 +273,7 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                    'Qurilma ${snapshot!.deviceCode} • faollashtirilgan',
+                    '${tr('Kompyuter')} ${snapshot!.deviceCode} • ${tr('faollashtirilgan')}',
                     style: TextStyle(color: VColors.ink)),
               ),
             ],
@@ -291,23 +291,32 @@ class _LoginPageState extends State<LoginPage> {
             LengthLimitingTextInputFormatter(6),
           ],
           style: const TextStyle(fontSize: 26, letterSpacing: 12),
-          decoration: const InputDecoration(
-            labelText: 'Xodim PIN-kodi',
-            prefixIcon: Icon(Icons.dialpad_rounded),
+          decoration: InputDecoration(
+            labelText: tr('Xodim PIN-kodi'),
+            prefixIcon: const Icon(Icons.dialpad_rounded),
           ),
           onSubmitted: (_) => _login(),
         ),
         _message(),
         const SizedBox(height: 22),
-        _primaryButton('Kirish', _login),
+        _primaryButton(tr('Kirish'), _login),
         if (!snapshot!.hasStaff) ...[
           const SizedBox(height: 14),
           OutlinedButton.icon(
             onPressed: busy ? null : _setup,
             icon: const Icon(Icons.person_add_alt_1_rounded),
-            label: const Text('Birinchi administratorni yaratish'),
+            label: Text(tr('Birinchi administratorni yaratish')),
           ),
         ],
+        const SizedBox(height: 10),
+        TextButton.icon(
+          onPressed: busy ? null : () => setState(() {
+            switching = true;
+            error = null;
+          }),
+          icon: const Icon(Icons.swap_horiz_rounded),
+          label: Text(tr('Boshqa klubga ulash')),
+        ),
       ],
     );
   }
@@ -374,7 +383,7 @@ class _DeviceCodeCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Qurilma kodi',
+                Text(tr('Kompyuter kodi'),
                     style: TextStyle(color: VColors.muted)),
                 const SizedBox(height: 3),
                 SelectableText(
@@ -390,7 +399,7 @@ class _DeviceCodeCard extends StatelessWidget {
             ),
           ),
           IconButton(
-            tooltip: 'Nusxalash',
+            tooltip: tr('Nusxalash'),
             onPressed: onCopy,
             icon: const Icon(Icons.copy_rounded),
           ),
@@ -431,7 +440,7 @@ class _BrandPanel extends StatelessWidget {
           ),
           const Spacer(),
           Text(
-            'Klub boshqaruvi\nendi sodda.',
+            tr('Klub boshqaruvi\nendi sodda.'),
             style: Theme.of(context).textTheme.displayMedium?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
@@ -439,9 +448,9 @@ class _BrandPanel extends StatelessWidget {
                 ),
           ),
           const SizedBox(height: 20),
-          const Text(
-            'Zal, sotuvlar, bronlar, mijozlar va hisobotlar — barchasi bitta oynada.',
-            style: TextStyle(color: Color(0xFFAAB4C7), fontSize: 18),
+          Text(
+            tr('Zal, sotuvlar, bronlar, mijozlar va hisobotlar — barchasi bitta oynada.'),
+            style: const TextStyle(color: Color(0xFFAAB4C7), fontSize: 18),
           ),
           const Spacer(),
           Row(
@@ -449,7 +458,7 @@ class _BrandPanel extends StatelessWidget {
               Icon(Icons.wifi_rounded, color: VColors.green, size: 18),
               const SizedBox(width: 8),
               Text(
-                'Supabase bilan himoyalangan ulanish',
+                tr('Himoyalangan ulanish'),
                 style: TextStyle(color: Color(0xFFAAB4C7)),
               ),
             ],
@@ -457,5 +466,34 @@ class _BrandPanel extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// UZ / RU switch for the login screen -- the owner may not read Uzbek.
+class _LangSwitch extends StatelessWidget {
+  const _LangSwitch();
+
+  @override
+  Widget build(BuildContext context) {
+    final ru = LocaleController.instance.isRu;
+    Widget chip(String label, bool active) => GestureDetector(
+          onTap: active ? null : LocaleController.instance.toggle,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: active ? VColors.green : VColors.field,
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Text(label,
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: active ? Colors.white : VColors.muted)),
+          ),
+        );
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      chip('UZ', !ru),
+      const SizedBox(width: 6),
+      chip('RU', ru),
+    ]);
   }
 }

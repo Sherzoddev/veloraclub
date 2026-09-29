@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../i18n.dart';
+
 enum DeviceAccessPhase { activation, venue, pin }
 
 class DeviceAccessSnapshot {
@@ -113,19 +115,30 @@ class DeviceAccessService {
     );
   }
 
+  /// Activation code + venue token in one step. The code is the vendor's
+  /// permission to run the program on this computer; the token says which
+  /// club it is -- the code gets activated for that club on first use, no
+  /// matter which club the bot prepared it for.
   Future<DeviceAccessSnapshot> activateAndConnect({
     required String activationCode,
     required String venueToken,
   }) async {
+    final token = venueToken.replaceAll(RegExp(r'\s'), '');
+    if (token.isEmpty) throw StateError('VENUE_TOKEN_REQUIRED');
     final preferences = await SharedPreferences.getInstance();
     final deviceCode = preferences.getString(deviceCodeKey) ?? '';
     if (deviceCode.isEmpty) throw StateError('DEVICE_CODE_MISSING');
 
-    await _client.rpc('device_activate', params: {
+    final result = _jsonMap(await _client.rpc('device_activate_venue', params: {
       'p_device_code': deviceCode,
       'p_activation_code': activationCode.trim(),
-    });
-    await connectVenue(venueToken);
+      'p_venue_token': token,
+    }));
+    if (result['ok'] != true) {
+      throw StateError(result['reason']?.toString() ?? 'SERVER_ERROR');
+    }
+    await preferences.setString(venueTokenKey, token);
+    applyVenueToken(_client, token);
     return initialize();
   }
 
@@ -206,23 +219,25 @@ class DeviceAccessService {
       'UNKNOWN_DEVICE': 'Qurilma topilmadi. Ilovani qayta ishga tushiring.',
       'UNKNOWN_CODE': 'Faollashtirish kodi noto\'g\'ri.',
       'CODE_REVOKED': 'Faollashtirish kodi bekor qilingan.',
-      'CODE_BOUND_ELSEWHERE': 'Bu kod boshqa qurilmaga biriktirilgan.',
-      'CODE_NOT_PREPARED': 'Kod hali bot orqali tayyorlanmagan.',
-      'UNKNOWN_TOKEN': 'Venue token noto\'g\'ri.',
-      'TOKEN_REVOKED': 'Venue token bekor qilingan.',
-      'CLUB_NOT_LICENSED': 'Zavod litsenziyasi faol emas.',
+      'CODE_BOUND_ELSEWHERE': 'Bu kod boshqa kompyuter uchun berilgan.',
+      'CODE_ALREADY_USED': 'Bu kod boshqa klubda ishlatilgan.',
+      'CODE_NOT_PREPARED': 'Faollashtirish kodi va klub tokenini birga kiriting.',
+      'UNKNOWN_TOKEN': 'Klub tokeni noto\'g\'ri.',
+      'TOKEN_REVOKED': 'Klub tokeni bekor qilingan.',
+      'CLUB_NOT_LICENSED': 'Bu klub hali faollashtirilmagan — faollashtirish kodini ham kiriting.',
+      'EXPIRED': 'Litsenziya muddati tugagan.',
+      'LOCKED': 'Juda ko\'p noto\'g\'ri urinish. Keyinroq qayta urinib ko\'ring.',
       'INVALID_PIN': 'PIN 4–6 ta raqamdan iborat bo\'lishi kerak.',
       'BAD_PIN': 'PIN noto\'g\'ri.',
-      'LOCKED': 'Kirish vaqtincha bloklangan. Keyinroq urinib ko\'ring.',
       'ALREADY_SET_UP': 'Xodimlar allaqachon yaratilgan.',
-      'NOT_ACTIVATED': 'Qurilma hali faollashtirilmagan.',
-      'VENUE_TOKEN_REQUIRED': 'Venue tokenni kiriting.',
+      'NOT_ACTIVATED': 'Kompyuter hali faollashtirilmagan.',
+      'VENUE_TOKEN_REQUIRED': 'Klub tokenini kiriting.',
       'SESSION_NOT_CREATED': 'Xavfsiz sessiya yaratilmadi.',
     };
     for (final entry in known.entries) {
-      if (raw.contains(entry.key)) return entry.value;
+      if (raw.contains(entry.key)) return tr(entry.value);
     }
-    return 'Ulanishda xatolik. Internetni tekshirib, qayta urinib ko\'ring.';
+    return tr('Ulanishda xatolik. Internetni tekshirib, qayta urinib ko\'ring.');
   }
 
   static Map<String, dynamic> _jsonMap(dynamic value) {
@@ -242,20 +257,15 @@ class DeviceAccessService {
   }
 
   static String? _reasonText(String? reason) {
-    switch (reason) {
-      case 'NOT_ACTIVATED':
-        return 'Qurilmani owner-bot orqali faollashtiring.';
-      case 'NO_LICENSE':
-        return 'Faol litsenziya topilmadi.';
-      case 'EXPIRED':
-        return 'Litsenziya muddati tugagan.';
-      case 'VENUE_REVOKED':
-        return 'Venue token bekor qilingan.';
-      case 'UNKNOWN_VENUE':
-        return 'Saqlangan venue token yaroqsiz.';
-      default:
-        return null;
-    }
+    final text = switch (reason) {
+      'NOT_ACTIVATED' => 'Faollashtirish kodi va klub tokenini kiriting.',
+      'NO_LICENSE' => 'Bu klub hali faollashtirilmagan — faollashtirish kodini kiriting.',
+      'EXPIRED' => 'Litsenziya muddati tugagan.',
+      'VENUE_REVOKED' => 'Klub tokeni bekor qilingan.',
+      'UNKNOWN_VENUE' => 'Saqlangan klub tokeni yaroqsiz.',
+      _ => null,
+    };
+    return text == null ? null : tr(text);
   }
 
   static String _randomId(int length) {
