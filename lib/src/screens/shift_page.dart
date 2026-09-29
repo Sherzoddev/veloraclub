@@ -27,13 +27,20 @@ class ShiftPage extends StatelessWidget {
                       rows.where((r) => r['status'] == 'OPEN').firstOrNull;
                   final day = _workDay(DateTime.now());
                   final dayShifts = _shiftsIn(rows, day);
-                  return FutureBuilder<_DayData>(
-                      future: _loadDay(current, day),
+                  // Totals are always one shift's, from its opening to now
+                  // (or to its close) -- the open one, else the last one.
+                  final last = current ??
+                      rows.where((r) => r['status'] == 'CLOSED').firstOrNull;
+                  return FutureBuilder<Map<String, dynamic>>(
+                      future: current == null
+                          ? Future.value(Map<String, dynamic>.from(
+                              last?['totals'] as Map? ?? {}))
+                          : controller.repository
+                              .shiftTotals('${current['id']}'),
                       builder: (context, snap) {
-                        final t = snap.data?.shiftTotals ??
+                        final t = snap.data ??
                             Map<String, dynamic>.from(
                                 current?['totals'] as Map? ?? {});
-                        final r = snap.data?.report ?? const {};
                         final isCashier = controller.context!.isCashier;
                         return ListView(children: [
                           if (current == null) ...[
@@ -52,8 +59,8 @@ class ShiftPage extends StatelessWidget {
                           ],
                           _shiftsCard(day, dayShifts, current, t, isCashier),
                           const SizedBox(height: 20),
-                          if (!isCashier) ...[
-                            _dayTotalsCard(r),
+                          if (!isCashier && last != null) ...[
+                            _shiftTotalsCard(last, t, current != null),
                             const SizedBox(height: 20),
                           ],
                           // Depositing/withdrawing cash outside a sale is an
@@ -104,9 +111,9 @@ class ShiftPage extends StatelessWidget {
                 }))
       ]));
 
-  /// The screen covers a working day, 07:00 to 07:00 the next morning --
-  /// the same day the owner bot reports on -- so a night that runs past
-  /// midnight, and a shift closed and reopened in it, stay in one view.
+  /// The shift list covers a working day, 07:00 to 07:00 the next morning,
+  /// the same day the owner bot's day picker uses; each shift's numbers
+  /// still run from its own opening to its close.
   static const _dayStartHour = 7;
 
   ({DateTime start, DateTime end}) _workDay(DateTime now) {
@@ -120,30 +127,21 @@ class ShiftPage extends StatelessWidget {
     );
   }
 
-  /// Shifts that ran during the day, oldest first. Open/close test clicks
-  /// under a minute are left out, as in the owner bot.
+  /// Shifts opened during the day plus the open one, oldest first.
+  /// Open/close test clicks under a minute are left out, as in the owner bot.
   List<Map<String, dynamic>> _shiftsIn(
       List<Map<String, dynamic>> rows, ({DateTime start, DateTime end}) day) {
     final list = rows.where((s) {
+      if (s['status'] == 'OPEN') return true;
       final opened = DateTime.tryParse('${s['opened_at']}')?.toLocal();
       final closed = DateTime.tryParse('${s['closed_at']}')?.toLocal();
-      if (opened == null || !opened.isBefore(day.end)) return false;
-      if (closed == null) return s['status'] == 'OPEN';
-      return closed.isAfter(day.start) &&
+      if (opened == null || closed == null) return false;
+      return !opened.isBefore(day.start) &&
+          opened.isBefore(day.end) &&
           closed.difference(opened) >= const Duration(minutes: 1);
     }).toList();
     list.sort((a, b) => '${a['opened_at']}'.compareTo('${b['opened_at']}'));
     return list;
-  }
-
-  Future<_DayData> _loadDay(Map<String, dynamic>? current,
-      ({DateTime start, DateTime end}) day) async {
-    final repo = controller.repository;
-    final results = await Future.wait([
-      repo.periodReport(controller.context!.clubId, day.start, DateTime.now()),
-      if (current != null) repo.shiftTotals('${current['id']}'),
-    ]);
-    return _DayData(results[0], results.length > 1 ? results[1] : null);
   }
 
   String _name(dynamic profile) =>
@@ -198,17 +196,26 @@ class ShiftPage extends StatelessWidget {
     ]));
   }
 
-  Widget _dayTotalsCard(Map<String, dynamic> r) {
-    num n(String key) => (r[key] as num?) ?? 0;
+  /// One shift's takings (shift_totals): the open shift from its opening to
+  /// now, or the last closed one -- the same numbers as the owner bot's shift
+  /// report and the shift-close message.
+  Widget _shiftTotalsCard(
+      Map<String, dynamic> shift, Map<String, dynamic> t, bool open) {
+    num n(String key) => (t[key] as num?) ?? 0;
     final byMethod =
-        Map<String, dynamic>.from(r['by_payment_method'] as Map? ?? {});
+        Map<String, dynamic>.from(t['by_payment_method'] as Map? ?? {});
     return VCard(
-        child: Column(children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(
+          '${open ? tr('Joriy smena') : tr('Oxirgi smena')} · ${shortDate(shift['opened_at'])} → ${open ? tr('hozir') : shortDate(shift['closed_at'])}',
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 8),
       _row(tr('Buyurtmalar'), '${n('orders_count').toInt()}'),
-      for (final e in byMethod.entries) _row(e.key, money(e.value)),
+      for (final e in byMethod.entries)
+        if (e.value is num && e.value != 0) _row(e.key, money(e.value)),
       _row(tr('Tushum'), money(n('revenue')), bold: true),
-      _row(tr('Tannarx'), money(n('products_cost'))),
-      _row(tr('Foyda'), money(n('revenue') - n('products_cost')), bold: true),
+      _row(tr('Tannarx'), money(n('cost'))),
+      _row(tr('Foyda'), money(n('revenue') - n('cost')), bold: true),
       _row(tr('Xarajatlar'), money(n('expenses'))),
       _row(tr('Sof foyda'), money(n('net_profit')), bold: true),
     ]));
@@ -358,10 +365,4 @@ class ShiftPage extends StatelessWidget {
       }
     }
   }
-}
-
-class _DayData {
-  _DayData(this.report, this.shiftTotals);
-  final Map<String, dynamic> report;
-  final Map<String, dynamic>? shiftTotals;
 }
