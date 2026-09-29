@@ -1,0 +1,63 @@
+name: Windows build
+
+# The till runs the Windows build. Every change to the app gets a ready
+# zip (the whole Release folder: velora_club.exe plus its DLLs and data);
+# on main it is also published as the "windows-latest" release, so the
+# download link never changes.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'windows/**'
+      - 'assets/**'
+      - 'third_party/**'
+      - 'pubspec.*'
+      - '.github/workflows/windows-build.yml'
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'windows/**'
+      - 'assets/**'
+      - 'third_party/**'
+      - 'pubspec.*'
+      - '.github/workflows/windows-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build
+        run: flutter build windows --release --build-number=${{ github.run_number }}
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath VeloraClub-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VeloraClub-windows
+          path: VeloraClub-windows.zip
+
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-latest
+          name: Velora Club Windows (latest)
+          prerelease: false
+          make_latest: false
+          files: VeloraClub-windows.zip
