@@ -388,6 +388,43 @@ async function showDayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: nu
   });
 }
 
+// "📊 Сегодня" = the shift that is open right now, from its opening until
+// now: a shift opened yesterday and still running keeps yesterday's sales in
+// the total instead of restarting at 07:00. With the till closed it falls
+// back to the current working day. "🗓 Отчёт за день" stays 07:00 → 07:00.
+async function showTodayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number) {
+  const { data: open } = await sb.from("cash_shifts").select(SHIFT_SELECT)
+    .eq("club_id", cfg.club_id).is("closed_at", null)
+    .order("opened_at", { ascending: false }).limit(1).maybeSingle();
+  const shift = open as unknown as ShiftRow | null;
+  if (!shift) {
+    const t = currentWorkDay(cfg.timezone);
+    return showDayReport(sb, cfg, chatId, t.y, t.mo, t.d);
+  }
+
+  const now = new Date().toISOString();
+  const [{ data, error }, { data: cash }] = await Promise.all([
+    sb.rpc("bot_period_report", { p_club_id: cfg.club_id, p_from: shift.opened_at, p_to: now }),
+    sb.rpc("bot_shift_expected_cash", { p_shift_id: shift.id }),
+  ]);
+  if (error) return void send(cfg.bot_token, chatId, `⚠️ Ошибка: ${error.message}`, { reply_markup: mainKeyboard });
+  if (cash != null) shift.expected_cash = Number(cash);
+
+  const text =
+    `📊 <b>Текущая смена</b>\n\n` +
+    `${shiftLines([shift], cfg)}\n⏱ Идёт: ${durationLabel(shift.opened_at, now)}\n${DIVIDER}\n\n` +
+    reportBody(data, cfg);
+
+  await send(cfg.bot_token, chatId, text, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📥 Скачать Excel", callback_data: `xlsshift:${shift.id}` }],
+        [{ text: "🗓 Отчёт за день", callback_data: "shiftcal" }],
+      ],
+    },
+  });
+}
+
 // Cash shifts: listed at the top of each day report. Separate per-shift
 // reports are only reached from buttons on older messages.
 type ShiftRow = {
@@ -1007,11 +1044,9 @@ Deno.serve(async (req) => {
     }
 
     switch (text) {
-      case MENU.today: {
-        const t = currentWorkDay(cfg.timezone);
-        await showDayReport(sb, cfg, chatId, t.y, t.mo, t.d);
+      case MENU.today:
+        await showTodayReport(sb, cfg, chatId);
         return new Response("ok");
-      }
       case MENU.period:
       case "🕗 За период": { // label on keyboards sent before the rename
         const t = currentWorkDay(cfg.timezone);
