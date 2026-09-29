@@ -19,8 +19,25 @@ class ClubPage extends StatefulWidget {
   State<ClubPage> createState() => _ClubPageState();
 }
 
+/// Zone names of [resources] in the club's zone order ([zoneRows] from the
+/// zones table), then any zone typed on a table but missing there, in the
+/// order the tables come. Blank zones are left out.
+List<String> clubZones(
+    List<Map<String, dynamic>> resources, List<Map<String, dynamic>> zoneRows) {
+  final used = <String>{
+    for (final r in resources)
+      if ('${r['zone'] ?? ''}'.trim().isNotEmpty) '${r['zone']}'.trim()
+  };
+  return [
+    for (final z in zoneRows)
+      if (used.remove('${z['name'] ?? ''}'.trim())) '${z['name']}'.trim(),
+    ...used,
+  ];
+}
+
 class _ClubPageState extends State<ClubPage> {
   String family = 'ALL';
+  String zone = 'ALL';
 
   Future<List<dynamic>> load() async {
     final repo = widget.controller.repository;
@@ -31,6 +48,7 @@ class _ClubPageState extends State<ClubPage> {
       repo.tariffs(clubId),
       repo.customers(clubId),
       repo.reservations(clubId),
+      repo.zones(clubId),
     ]);
   }
 
@@ -78,11 +96,52 @@ class _ClubPageState extends State<ClubPage> {
                 '${r['resource_types']['family']}'
           }.toList()
             ..sort();
+          final zones = clubZones(
+              resources, List<Map<String, dynamic>>.from(values[5]));
+          // Zones matter only when there are at least two of them; one
+          // family alone needs no chip once zones are shown.
+          final showZones = zones.length > 1;
+          final showFamilies = families.length > 1 || !showZones;
+          final zoneNow = zones.contains(zone) ? zone : 'ALL';
+          final familyNow =
+              showFamilies && families.contains(family) ? family : 'ALL';
+          String zoneOf(Map<String, dynamic> r) => '${r['zone'] ?? ''}'.trim();
           final filtered = resources.where((r) {
-            if (family == 'ALL') return true;
+            if (zoneNow != 'ALL' && zoneOf(r) != zoneNow) return false;
+            if (familyNow == 'ALL') return true;
             final type = r['resource_types'];
-            return type is Map && '${type['family']}' == family;
+            return type is Map && '${type['family']}' == familyNow;
           }).toList();
+          Widget card(Map<String, dynamic> resource) => SizedBox(
+                width: 300,
+                height: 300,
+                child: _ResourceCard(
+                  resource: resource,
+                  session: sessionByResource['${resource['id']}'],
+                  reservation: reservationByResource['${resource['id']}'],
+                  tariffs: tariffs,
+                  customers: customers,
+                  allResources: resources,
+                  sessionByResource: sessionByResource,
+                  controller: widget.controller,
+                ),
+              );
+          Widget grid(List<Map<String, dynamic>> items) => Wrap(
+                spacing: 14,
+                runSpacing: 14,
+                children: items.map(card).toList(),
+              );
+          // "All zones" lays the hall out zone by zone under a heading.
+          final groups = <String, List<Map<String, dynamic>>>{};
+          if (showZones && zoneNow == 'ALL') {
+            for (final z in zones) {
+              groups[z] = [];
+            }
+            for (final r in filtered) {
+              groups.putIfAbsent(zoneOf(r), () => []).add(r);
+            }
+            groups.removeWhere((_, items) => items.isEmpty);
+          }
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -111,16 +170,32 @@ class _ClubPageState extends State<ClubPage> {
                 ],
               ),
               const SizedBox(height: 14),
-              Wrap(
-                spacing: 8,
-                children: [
-                  _Filter('ALL', tr('Barchasi'), family,
-                      (v) => setState(() => family = v)),
-                  for (final f in families)
-                    _Filter(f, tr(_familyLabel(f)), family,
+              if (showFamilies)
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    _Filter('ALL', tr('Barchasi'), familyNow,
                         (v) => setState(() => family = v)),
-                ],
-              ),
+                    for (final f in families)
+                      _Filter(f, tr(_familyLabel(f)), familyNow,
+                          (v) => setState(() => family = v)),
+                  ],
+                ),
+              if (showFamilies && showZones) const SizedBox(height: 8),
+              if (showZones)
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _Filter(
+                        'ALL',
+                        tr(showFamilies ? 'Barcha zonalar' : 'Barchasi'),
+                        zoneNow,
+                        (v) => setState(() => zone = v)),
+                    for (final z in zones)
+                      _Filter(z, z, zoneNow, (v) => setState(() => zone = v)),
+                  ],
+                ),
               const SizedBox(height: 20),
               Expanded(
                 child: filtered.isEmpty
@@ -130,36 +205,65 @@ class _ClubPageState extends State<ClubPage> {
                         subtitle: tr("Sozlamalarda yangi joy qo'shing"),
                       )
                     : SingleChildScrollView(
-                        child: Wrap(
-                          spacing: 14,
-                          runSpacing: 14,
-                          children: filtered.map((resource) {
-                            final session =
-                                sessionByResource['${resource['id']}'];
-                            final reservation =
-                                reservationByResource['${resource['id']}'];
-                            return SizedBox(
-                              width: 300,
-                              height: 300,
-                              child: _ResourceCard(
-                                resource: resource,
-                                session: session,
-                                reservation: reservation,
-                                tariffs: tariffs,
-                                customers: customers,
-                                allResources: resources,
-                                sessionByResource: sessionByResource,
-                                controller: widget.controller,
+                        child: groups.isEmpty
+                            ? grid(filtered)
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  for (final e in groups.entries) ...[
+                                    _ZoneHeading(
+                                      name: e.key.isEmpty
+                                          ? tr('Zonasiz')
+                                          : e.key,
+                                      total: e.value.length,
+                                      busy: e.value
+                                          .where((r) => sessionByResource
+                                              .containsKey('${r['id']}'))
+                                          .length,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    grid(e.value),
+                                    const SizedBox(height: 22),
+                                  ],
+                                ],
                               ),
-                            );
-                          }).toList(),
-                        ),
                       ),
               ),
             ],
           );
         },
       ),
+    );
+  }
+}
+
+class _ZoneHeading extends StatelessWidget {
+  const _ZoneHeading(
+      {required this.name, required this.total, required this.busy});
+  final String name;
+  final int total;
+  final int busy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(name,
+            style: TextStyle(
+                color: VColors.ink,
+                fontSize: 16,
+                fontWeight: FontWeight.w800)),
+        const SizedBox(width: 10),
+        Text(
+          LocaleController.instance.isRu
+              ? 'занято $busy из $total'
+              : '$total tadan $busy ta band',
+          style: TextStyle(
+              color: VColors.muted, fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Divider(color: VColors.line, height: 1)),
+      ],
     );
   }
 }
