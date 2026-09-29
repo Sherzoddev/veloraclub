@@ -277,6 +277,7 @@ class ClubRepository {
     required String tariffId,
     String? customerId,
     int? plannedMinutes,
+    int? prepaidAmount,
     int playersCount = 1,
     String? comment,
   }) async {
@@ -288,7 +289,7 @@ class ClubRepository {
       'p_customer_id': customerId,
       'p_players_count': playersCount,
       'p_comment': comment,
-      'p_prepaid_amount': 0,
+      'p_prepaid_amount': prepaidAmount ?? 0,
       'p_planned_minutes': plannedMinutes,
     }));
     // A local COM-port hiccup must never block a session that's already
@@ -332,11 +333,12 @@ class ClubRepository {
         Uint8List.fromList([0xA0, resolvedChannel, state, checksum]));
   }
 
-  Future<Map<String, dynamic>> extendSessionTimer(
-          String sessionId, int minutes) async =>
+  Future<Map<String, dynamic>> extendSessionTimer(String sessionId, int minutes,
+          {int? amount}) async =>
       rowMap(await client.rpc('extend_session_timer', params: {
         'p_session_id': sessionId,
         'p_minutes': minutes,
+        if (amount != null) 'p_amount': amount,
       }));
 
   Future<Map<String, dynamic>> pauseSession(String sessionId) async => rowMap(
