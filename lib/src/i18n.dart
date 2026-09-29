@@ -100,6 +100,7 @@ const Map<String, String> _ru = {
   "Sozlamalarda yangi joy qo'shing": 'Добавьте новое место в настройках',
   'PAUZA': 'ПАУЗА',
   "O'YIN BORMOQDA": 'ИДЁТ ИГРА',
+  'VAQT TUGADI': 'ВРЕМЯ ВЫШЛО',
   'Davom': 'Продолжить',
   'Davom ettirish': 'Продолжить',
   'Pauza': 'Пауза',

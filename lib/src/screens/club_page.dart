@@ -303,6 +303,36 @@ class _Filter extends StatelessWidget {
   }
 }
 
+/// Seconds played in the current round: wall time since started_at less
+/// pauses, stopped at planned_end_at -- when a table runs for a paid sum the
+/// relay cuts it there and the server stops billing there too
+/// (app_session_active_seconds).
+int sessionPlayedSeconds(Map<String, dynamic> session, DateTime now) {
+  final started = DateTime.tryParse('${session['started_at']}');
+  if (started == null) return 0;
+  var end = now.toUtc();
+  if (session['status'] == 'PAUSED') {
+    final pausedAt = DateTime.tryParse('${session['pause_started_at']}');
+    if (pausedAt != null && pausedAt.toUtc().isBefore(end)) end = pausedAt.toUtc();
+  }
+  final planned = DateTime.tryParse('${session['planned_end_at']}');
+  if (planned != null && planned.toUtc().isBefore(end)) end = planned.toUtc();
+  final seconds = end.difference(started.toUtc()).inSeconds -
+      ((session['paused_seconds'] as num?)?.toInt() ?? 0);
+  return seconds < 0 ? 0 : seconds;
+}
+
+/// Live time charge for the card and the session dialog: never above the
+/// sum the table was started for (prepaid_amount), as on the server.
+int sessionTimeCharge(
+    Map<String, dynamic> session, num pricePerHour, DateTime now) {
+  final banked = (session['banked_time_amount'] as num?)?.toInt() ?? 0;
+  final amount = banked +
+      (pricePerHour * sessionPlayedSeconds(session, now) / 3600).round();
+  final prepaid = (session['prepaid_amount'] as num?)?.toInt() ?? 0;
+  return prepaid > 0 && amount > prepaid ? prepaid : amount;
+}
+
 /// Live-ticking pill/timer/amount/actions shown on an occupied table card.
 /// Runs its own 1s timer purely to animate the elapsed-time text and a
 /// client-side per-hour estimate of the amount; the authoritative charge is
@@ -371,20 +401,7 @@ class _ActiveBodyState extends State<_ActiveBody> {
 
   bool get _paused => widget.session['status'] == 'PAUSED';
 
-  int get _elapsedSeconds {
-    final started = DateTime.tryParse('${widget.session['started_at']}');
-    if (started == null) return 0;
-    var seconds = DateTime.now().toUtc().difference(started.toUtc()).inSeconds;
-    seconds -= (widget.session['paused_seconds'] as num?)?.toInt() ?? 0;
-    if (_paused) {
-      final pausedAt =
-          DateTime.tryParse('${widget.session['pause_started_at']}');
-      if (pausedAt != null) {
-        seconds -= DateTime.now().toUtc().difference(pausedAt.toUtc()).inSeconds;
-      }
-    }
-    return seconds < 0 ? 0 : seconds;
-  }
+  int get _elapsedSeconds => sessionPlayedSeconds(widget.session, DateTime.now());
 
   String get _hms {
     final s = _elapsedSeconds;
@@ -392,12 +409,11 @@ class _ActiveBodyState extends State<_ActiveBody> {
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 
-  int get _amount {
-    final pricePerHour = (widget.tariff?['price_per_hour'] as num?) ?? 0;
-    final banked = (widget.session['banked_time_amount'] as num?)?.toInt() ?? 0;
-    final segment = (pricePerHour * _elapsedSeconds / 3600).round();
-    return banked + segment;
-  }
+  int get _amount => sessionTimeCharge(widget.session,
+      (widget.tariff?['price_per_hour'] as num?) ?? 0, DateTime.now());
+
+  bool get _timeIsUp =>
+      !_paused && _plannedEnd != null && DateTime.now().isAfter(_plannedEnd!);
 
   String get _clock {
     final d = DateTime.tryParse('${widget.session['started_at']}')?.toLocal();
@@ -416,9 +432,21 @@ class _ActiveBodyState extends State<_ActiveBody> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _StatusPill(
-          label: tr(_paused ? 'PAUZA' : 'O\'YIN BORMOQDA'),
-          background: _paused ? VColors.orange.withValues(alpha: .16) : VColors.greenSoft,
-          foreground: _paused ? VColors.orange : VColors.green,
+          label: tr(_paused
+              ? 'PAUZA'
+              : _timeIsUp
+                  ? 'VAQT TUGADI'
+                  : 'O\'YIN BORMOQDA'),
+          background: _paused
+              ? VColors.orange.withValues(alpha: .16)
+              : _timeIsUp
+                  ? VColors.red.withValues(alpha: .16)
+                  : VColors.greenSoft,
+          foreground: _paused
+              ? VColors.orange
+              : _timeIsUp
+                  ? VColors.red
+                  : VColors.green,
         ),
         if (customer is Map) ...[
           const SizedBox(height: 8),
@@ -851,7 +879,7 @@ class _ResourceCard extends StatelessWidget {
       final minutes = (amount / pricePerHour * 60).round();
       try {
         await controller.repository
-            .extendSessionTimer('${session!['id']}', minutes);
+            .extendSessionTimer('${session!['id']}', minutes, amount: amount);
         if (resource['relay_device_id'] != null) {
           final device = await controller.repository
               .relayDeviceForResource('${resource['id']}');
@@ -1002,8 +1030,8 @@ class _ResourceCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                       LocaleController.instance.isRu
-                          ? '≈ $plannedMinutes ${tr('daqiqa')} — по истечении стол завершится автоматически'
-                          : '≈ $plannedMinutes daqiqa — shu vaqtdan so\'ng stol avtomatik yakunlanadi',
+                          ? '≈ $plannedMinutes ${tr('daqiqa')} — потом стол отключится, время остановится, в чеке эта сумма'
+                          : '≈ $plannedMinutes daqiqa — so\'ng stol o\'chadi, vaqt to\'xtaydi, chekda shu summa',
                       style: TextStyle(color: VColors.subtle, fontSize: 11.5)),
                 ],
               ],
@@ -1030,6 +1058,8 @@ class _ResourceCard extends StatelessWidget {
         tariffId: tariffId!,
         customerId: customerId,
         plannedMinutes: plannedMinutes,
+        prepaidAmount:
+            plannedMinutes == null ? null : int.tryParse(prepaidAmountCtrl.text),
       );
       if (context.mounted) showDone(context, tr('Seans boshlandi'));
       controller.refresh();
@@ -1056,22 +1086,9 @@ class _ResourceCard extends StatelessWidget {
     final tariff = resource['tariffs'];
     final pricePerHour =
         (tariff is Map ? tariff['price_per_hour'] as num? : null) ?? 0;
-    final startedAt = DateTime.tryParse('${session!['started_at']}');
-    var elapsedSeconds = startedAt == null
-        ? 0
-        : DateTime.now().toUtc().difference(startedAt.toUtc()).inSeconds -
-            ((session!['paused_seconds'] as num?)?.toInt() ?? 0);
-    if (isPaused) {
-      final pausedAt = DateTime.tryParse('${session!['pause_started_at']}');
-      if (pausedAt != null) {
-        elapsedSeconds -=
-            DateTime.now().toUtc().difference(pausedAt.toUtc()).inSeconds;
-      }
-    }
-    if (elapsedSeconds < 0) elapsedSeconds = 0;
-    final bankedAmount = (session!['banked_time_amount'] as num?)?.toInt() ?? 0;
-    final timeAmount =
-        bankedAmount + (pricePerHour * elapsedSeconds / 3600).round();
+    final now = DateTime.now();
+    final elapsedSeconds = sessionPlayedSeconds(session!, now);
+    final timeAmount = sessionTimeCharge(session!, pricePerHour, now);
     final durationLabel = elapsedSeconds >= 3600
         ? '${elapsedSeconds ~/ 3600} soat ${(elapsedSeconds % 3600) ~/ 60} daq'
         : '${elapsedSeconds ~/ 60} daq';
