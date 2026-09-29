@@ -1,7 +1,9 @@
 # Builds the Windows desk app (velora_club.exe) on a Windows runner, so a new
 # build doesn't need a developer's PC. Runs on every push to main that touches
 # the app, or by hand from the Actions tab. The ready Release folder is
-# attached to the run as the "velora_club-windows" artifact.
+# attached to the run as the "velora_club-windows" artifact, and a build of
+# main is also published as a GitHub Release v1.0.<run number> with the
+# folder zipped -- a download link that doesn't expire after 30 days.
 name: Windows build
 
 on:
@@ -18,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: windows-build-${{ github.ref }}
@@ -40,7 +42,7 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
-      - run: flutter build windows --release
+      - run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
 
       # Copy the whole Release folder, not just the exe: the exe needs the
       # DLLs and data/ next to it.
@@ -50,3 +52,18 @@ jobs:
           path: build/windows/x64/runner/Release
           retention-days: 30
           if-no-files-found: error
+
+      # One Release per build of main, tagged v1.0.<run number> (the exe
+      # carries the same version), notes = the merged commit's message.
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ github.event.head_commit.message }}
+        run: |
+          $version = "1.0.${{ github.run_number }}"
+          $zip = "velora_club-windows-$version.zip"
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $zip
+          $notes = if ([string]::IsNullOrWhiteSpace($env:NOTES)) { "Windows build $version" } else { $env:NOTES }
+          Set-Content -Path notes.md -Value $notes -Encoding utf8
+          gh release create "v$version" $zip --title "Velora Club $version" --notes-file notes.md --target $env:GITHUB_SHA
