@@ -184,9 +184,11 @@ class _SalesPageState extends State<SalesPage> {
                         itemBuilder: (context, i) {
                           final p = filtered[i];
                           final stock = (p['stock_quantity'] as num?) ?? 0;
+                          final sellable =
+                              p['track_stock'] == false || stock > 0;
                           return ProductGridCard(
                             product: p,
-                            onTap: stock > 0 ? () => _add(p) : null,
+                            onTap: sellable ? () => _add(p) : null,
                           );
                         },
                       );
@@ -519,7 +521,8 @@ class _SalesPageState extends State<SalesPage> {
     final stock = (product['stock_quantity'] as num?) ?? 0;
     final id = '${product['id']}';
     final already = cart[id]?.quantity ?? 0;
-    if (stock <= 0 || already >= stock) {
+    final tracked = product['track_stock'] != false;
+    if (tracked && (stock <= 0 || already >= stock)) {
       showError(context, tr('Tovar qoldig\'i yetarli emas'));
       return;
     }

@@ -33,6 +33,7 @@ class _ReportData {
     required this.dashboard,
     required this.products,
     required this.shift,
+    required this.reportShift,
     required this.shiftTotals,
     required this.resources,
     required this.sessions,
@@ -42,7 +43,12 @@ class _ReportData {
   final Map<String, dynamic> previous;
   final Map<String, dynamic> dashboard;
   final List<Map<String, dynamic>> products;
+
+  /// The open shift, if any -- the top row's live cash figures.
   final Map<String, dynamic>? shift;
+
+  /// The shift the "Смена" chip reports on: the open one, or the last closed.
+  final Map<String, dynamic>? reportShift;
   final Map<String, dynamic>? shiftTotals;
   final List<Map<String, dynamic>> resources;
   final List<Map<String, dynamic>> sessions;
@@ -51,7 +57,10 @@ class _ReportData {
 class _ReportsPageState extends State<ReportsPage> {
   int period = 0;
 
-  static const _periodNames = ['Bugun', 'Hafta', 'Oy', 'Yil'];
+  // The first chip is the shift, not the calendar day: a club works past
+  // midnight, and "today from 00:00" mixed the tail of the previous shift
+  // into this one's numbers.
+  static const _periodNames = ['Smena', 'Hafta', 'Oy', 'Yil'];
 
   String get _bucket => switch (period) {
         0 => 'hour',
@@ -62,8 +71,7 @@ class _ReportsPageState extends State<ReportsPage> {
   DateTime _start(DateTime now) => switch (period) {
         1 => DateTime(now.year, now.month, now.day - 6),
         2 => DateTime(now.year, now.month),
-        3 => DateTime(now.year),
-        _ => DateTime(now.year, now.month, now.day),
+        _ => DateTime(now.year),
       };
 
   /// Same point in time one period earlier -- the comparison window is
@@ -80,38 +88,71 @@ class _ReportsPageState extends State<ReportsPage> {
     return switch (period) {
       1 => DateTime(d.year, d.month, d.day - 7, d.hour, d.minute, d.second),
       2 => shiftMonths(1),
-      3 => shiftMonths(12),
-      _ => DateTime(d.year, d.month, d.day - 1, d.hour, d.minute, d.second),
+      _ => shiftMonths(12),
     };
+  }
+
+  /// A shift runs from its opening to its closing -- or to now while it's
+  /// still open -- whatever calendar days it spans; the same window the club
+  /// bot's shift reports use. It is compared with the shift before it over
+  /// the same length of time, so an evening in progress isn't measured
+  /// against a whole finished shift.
+  ({DateTime from, DateTime to, DateTime prevFrom, DateTime prevTo})
+      _shiftWindow(List<Map<String, dynamic>> shifts,
+          Map<String, dynamic>? shift, DateTime now) {
+    DateTime? at(Map<String, dynamic>? s, String key) =>
+        DateTime.tryParse('${s?[key]}');
+    final from = at(shift, 'opened_at') ?? now;
+    final to = at(shift, 'closed_at') ?? now;
+    final i = shift == null ? -1 : shifts.indexOf(shift);
+    final prev = i >= 0 && i + 1 < shifts.length ? shifts[i + 1] : null;
+    final prevFrom = at(prev, 'opened_at') ?? from;
+    final prevEnd = at(prev, 'closed_at') ?? prevFrom;
+    final prevTo = prevFrom.add(to.difference(from));
+    return (
+      from: from,
+      to: to,
+      prevFrom: prevFrom,
+      prevTo: prevTo.isBefore(prevEnd) ? prevTo : prevEnd,
+    );
   }
 
   Future<_ReportData> _load() async {
     final repo = widget.controller.repository;
     final clubId = widget.controller.context!.clubId;
     final now = DateTime.now();
-    final from = _start(now);
+    // Newest first: the open shift, or -- between shifts -- the last closed
+    // one, so "Смена" always shows a real shift rather than an empty day.
+    final shifts = await repo.shifts(clubId);
+    final shift = shifts.where((s) => s['status'] == 'OPEN').firstOrNull;
+    final reportShift = shift ?? shifts.firstOrNull;
+    final w = period == 0
+        ? _shiftWindow(shifts, reportShift, now)
+        : (
+            from: _start(now),
+            to: now,
+            prevFrom: _back(_start(now)),
+            prevTo: _back(now),
+          );
     final results = await Future.wait([
-      repo.periodReport(clubId, from, now),
-      repo.periodReport(clubId, _back(from), _back(now)),
-      repo.reportDashboard(clubId, from, now, _bucket),
+      repo.periodReport(clubId, w.from, w.to),
+      repo.periodReport(clubId, w.prevFrom, w.prevTo),
+      repo.reportDashboard(clubId, w.from, w.to, _bucket),
       repo.products(clubId),
-      repo.shifts(clubId),
       repo.resources(clubId),
       repo.activeSessions(clubId),
+      if (shift != null) repo.shiftTotals('${shift['id']}'),
     ]);
-    final shifts = results[4] as List<Map<String, dynamic>>;
-    final shift = shifts.where((s) => s['status'] == 'OPEN').firstOrNull;
-    final totals =
-        shift == null ? null : await repo.shiftTotals('${shift['id']}');
     return _ReportData(
       report: results[0] as Map<String, dynamic>,
       previous: results[1] as Map<String, dynamic>,
       dashboard: results[2] as Map<String, dynamic>,
       products: results[3] as List<Map<String, dynamic>>,
       shift: shift,
-      shiftTotals: totals,
-      resources: results[5] as List<Map<String, dynamic>>,
-      sessions: results[6] as List<Map<String, dynamic>>,
+      reportShift: reportShift,
+      shiftTotals: shift == null ? null : results[6] as Map<String, dynamic>,
+      resources: results[4] as List<Map<String, dynamic>>,
+      sessions: results[5] as List<Map<String, dynamic>>,
     );
   }
 
@@ -142,12 +183,20 @@ class _ReportsPageState extends State<ReportsPage> {
       );
 
   Widget _header(_ReportData data) {
-    final opened = DateTime.tryParse('${data.shift?['opened_at']}')?.toLocal();
+    String at(Object? raw) {
+      final d = DateTime.tryParse('$raw')?.toLocal();
+      return d == null ? '' : DateFormat('dd.MM, HH:mm').format(d);
+    }
+
+    final last = data.reportShift;
     return PageHeader(
       title: tr('Hisobotlar'),
-      subtitle: opened == null
-          ? tr('Smena yopiq')
-          : '${tr('Ochilgan')}: ${DateFormat('dd.MM, HH:mm').format(opened)}',
+      // Between shifts "Смена" shows the last closed one -- say which.
+      subtitle: data.shift != null
+          ? '${tr('Ochilgan')}: ${at(data.shift!['opened_at'])}'
+          : last == null
+              ? tr('Smena yopiq')
+              : '${tr('Smena yopiq')} · ${at(last['opened_at'])} – ${at(last['closed_at'])}',
       actions: [
         IconButton(
           onPressed: () => setState(() {}),

@@ -21,7 +21,12 @@ const assets = new Map([
   ['/assets/member-card-v1.png', fs.readFileSync(path.join(__dirname, 'assets', 'member-card-v1.png'))],
   ['/assets/billiards-hero-v1.webp', fs.readFileSync(path.join(__dirname, 'assets', 'billiards-hero-v1.webp'))],
   ['/assets/member-card-v1.webp', fs.readFileSync(path.join(__dirname, 'assets', 'member-card-v1.webp'))],
+  // Member card designs the club picks in the admin Mini App (clubs.card_design).
+  ...['pyramid', 'playstation', 'combo', 'neon', 'gold'].map((name) => [
+    `/assets/cards/${name}-v1.svg`, fs.readFileSync(path.join(__dirname, 'assets', 'cards', `${name}-v1.svg`)),
+  ]),
 ]);
+const ASSET_TYPES = { '.webp': 'image/webp', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const port = Number(process.env.PORT || 3000);
 
 http.createServer((request, response) => {
@@ -33,7 +38,7 @@ http.createServer((request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
   if (assets.has(pathname)) {
     response.writeHead(200, {
-      'content-type': pathname.endsWith('.webp') ? 'image/webp' : 'image/png',
+      'content-type': ASSET_TYPES[path.extname(pathname)],
       'cache-control': 'public, max-age=31536000, immutable',
       'x-content-type-options': 'nosniff',
     });

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../i18n.dart';
 import '../theme.dart';
 import '../utils.dart';
 
@@ -505,9 +506,11 @@ class CategoryIconChip extends StatelessWidget {
   }
 }
 
-/// A product tile for the sale grids — photo on top at a fixed 3:2 ratio
-/// (contain-fit, so the whole item stays visible instead of a cover-crop
-/// clipping it), name/price/stock stacked as separate lines underneath.
+/// A product tile for the sale grids — photo on top filling whatever the
+/// grid cell leaves above the text (contain-fit, so the whole item stays
+/// visible instead of a cover-crop clipping it), name/price/stock stacked as
+/// separate lines underneath. The photo gives way, never the text: a square
+/// photo pushed the stock line out of the cell on narrower screens.
 /// Mirrors the club's other (web-based) POS product card 1:1, down to the
 /// price being plain ink rather than colored and stock status color-coded
 /// by how low it is, not just in/out.
@@ -530,16 +533,23 @@ class ProductGridCard extends StatelessWidget {
         ? Color(int.parse('${cat['color']}'.replaceFirst('#', 'FF'), radix: 16))
         : null;
     final stock = (product['stock_quantity'] as num?) ?? 0;
+    // Tea by the cup, a hookah, a bottle deposit: no stock to count, always
+    // on sale.
+    final untracked = product['track_stock'] == false;
     final imageUrl = product['image_url'] as String?;
     final hasImage = imageUrl != null && imageUrl.isNotEmpty;
-    final statusColor = stock <= 0
-        ? VColors.red
-        : stock <= 5
-            ? VColors.orange
-            : VColors.green;
-    final statusText = stock <= 0
-        ? 'Mavjud emas'
-        : '${stock == stock.roundToDouble() ? stock.toInt() : stock} ${product['unit'] ?? unitLabel}';
+    final statusColor = untracked
+        ? VColors.green
+        : stock <= 0
+            ? VColors.red
+            : stock <= 5
+                ? VColors.orange
+                : VColors.green;
+    final statusText = untracked
+        ? tr('Sotuvda')
+        : stock <= 0
+            ? tr('Mavjud emas')
+            : '${stock == stock.roundToDouble() ? stock.toInt() : stock} ${product['unit'] ?? unitLabel}';
     return Opacity(
       opacity: onTap == null ? .5 : 1,
       child: Card(

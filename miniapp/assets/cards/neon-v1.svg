@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 360" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#07021a"/>
+      <stop offset=".6" stop-color="#1f0638"/>
+      <stop offset="1" stop-color="#34084a"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe66b"/>
+      <stop offset=".45" stop-color="#ff7a59"/>
+      <stop offset="1" stop-color="#ff2e9a"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#12021f"/>
+      <stop offset="1" stop-color="#060110"/>
+    </linearGradient>
+    <linearGradient id="fadeX" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".35" stop-color="#fff" stop-opacity=".25"/>
+      <stop offset=".7" stop-color="#fff" stop-opacity="1"/>
+    </linearGradient>
+    <mask id="gridMask"><rect width="800" height="360" fill="url(#fadeX)"/></mask>
+    <mask id="sunCut">
+      <rect width="800" height="360" fill="#fff"/>
+      <g fill="#000"><rect x="480" y="150.0" width="240" height="2.0"/><rect x="480" y="164.9" width="240" height="3.1"/><rect x="480" y="181.6" width="240" height="4.2"/><rect x="480" y="200.1" width="240" height="5.3"/><rect x="480" y="220.4" width="240" height="6.4"/><rect x="480" y="242.5" width="240" height="7.5"/><rect x="480" y="266.4" width="240" height="8.6"/></g>
+    </mask>
+    <radialGradient id="sunGlow" cx="600" cy="170" r="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff4fa3" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ff4fa3" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1000" height="560"><feGaussianBlur stdDeviation="5"/></filter>
+    <filter id="haze" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1000" height="560"><feGaussianBlur stdDeviation="14"/></filter>
+    <clipPath id="below"><rect x="0" y="232" width="800" height="200"/></clipPath>
+  </defs>
+  <rect width="800" height="360" fill="url(#sky)"/>
+  <rect width="800" height="360" fill="url(#sunGlow)"/>
+  <g fill="#fff" opacity=".7">
+    <circle cx="380" cy="40" r="1.2"/><circle cx="452" cy="86" r="1"/><circle cx="498" cy="30" r="1.5"/><circle cx="740" cy="36" r="1.3"/>
+    <circle cx="772" cy="104" r="1"/><circle cx="412" cy="140" r="1.1"/><circle cx="706" cy="72" r="1"/><circle cx="560" cy="18" r="1"/>
+  </g>
+  <circle cx="600" cy="222" r="112" fill="url(#sun)" mask="url(#sunCut)"/>
+  <path d="M430 232 L470 204 L500 214 L540 188 L574 210 L606 196 L640 212 L668 192 L704 208 L740 190 L772 232 Z" fill="#12022a" opacity=".92"/>
+  <rect x="0" y="232" width="800" height="128" fill="url(#floor)"/>
+  <g mask="url(#gridMask)" clip-path="url(#below)">
+    <g stroke="#ff3fbf" stroke-width="5" opacity=".45" filter="url(#glow)"><line x1="600" y1="232" x2="-210" y2="400"/><line x1="600" y1="232" x2="-120" y2="400"/><line x1="600" y1="232" x2="-30" y2="400"/><line x1="600" y1="232" x2="60" y2="400"/><line x1="600" y1="232" x2="150" y2="400"/><line x1="600" y1="232" x2="240" y2="400"/><line x1="600" y1="232" x2="330" y2="400"/><line x1="600" y1="232" x2="420" y2="400"/><line x1="600" y1="232" x2="510" y2="400"/><line x1="600" y1="232" x2="600" y2="400"/><line x1="600" y1="232" x2="690" y2="400"/><line x1="600" y1="232" x2="780" y2="400"/><line x1="600" y1="232" x2="870" y2="400"/><line x1="600" y1="232" x2="960" y2="400"/><line x1="600" y1="232" x2="1050" y2="400"/><line x1="600" y1="232" x2="1140" y2="400"/><line x1="600" y1="232" x2="1230" y2="400"/><line x1="600" y1="232" x2="1320" y2="400"/><line x1="600" y1="232" x2="1410" y2="400"/><line x1="0" y1="238.0" x2="800" y2="238.0"/><line x1="0" y1="245.9" x2="800" y2="245.9"/><line x1="0" y1="256.4" x2="800" y2="256.4"/><line x1="0" y1="270.2" x2="800" y2="270.2"/><line x1="0" y1="288.4" x2="800" y2="288.4"/><line x1="0" y1="312.4" x2="800" y2="312.4"/><line x1="0" y1="344.2" x2="800" y2="344.2"/><line x1="0" y1="386.1" x2="800" y2="386.1"/></g>
+    <g stroke="#ff6ad5" stroke-width="1.4"><line x1="600" y1="232" x2="-210" y2="400"/><line x1="600" y1="232" x2="-120" y2="400"/><line x1="600" y1="232" x2="-30" y2="400"/><line x1="600" y1="232" x2="60" y2="400"/><line x1="600" y1="232" x2="150" y2="400"/><line x1="600" y1="232" x2="240" y2="400"/><line x1="600" y1="232" x2="330" y2="400"/><line x1="600" y1="232" x2="420" y2="400"/><line x1="600" y1="232" x2="510" y2="400"/><line x1="600" y1="232" x2="600" y2="400"/><line x1="600" y1="232" x2="690" y2="400"/><line x1="600" y1="232" x2="780" y2="400"/><line x1="600" y1="232" x2="870" y2="400"/><line x1="600" y1="232" x2="960" y2="400"/><line x1="600" y1="232" x2="1050" y2="400"/><line x1="600" y1="232" x2="1140" y2="400"/><line x1="600" y1="232" x2="1230" y2="400"/><line x1="600" y1="232" x2="1320" y2="400"/><line x1="600" y1="232" x2="1410" y2="400"/><line x1="0" y1="238.0" x2="800" y2="238.0"/><line x1="0" y1="245.9" x2="800" y2="245.9"/><line x1="0" y1="256.4" x2="800" y2="256.4"/><line x1="0" y1="270.2" x2="800" y2="270.2"/><line x1="0" y1="288.4" x2="800" y2="288.4"/><line x1="0" y1="312.4" x2="800" y2="312.4"/><line x1="0" y1="344.2" x2="800" y2="344.2"/><line x1="0" y1="386.1" x2="800" y2="386.1"/></g>
+  </g>
+  <line x1="0" y1="232" x2="800" y2="232" stroke="#48e5ff" stroke-width="7" opacity=".55" filter="url(#glow)" mask="url(#gridMask)"/>
+  <line x1="0" y1="232" x2="800" y2="232" stroke="#8ff1ff" stroke-width="1.6" mask="url(#gridMask)"/>
+  <ellipse cx="600" cy="232" rx="220" ry="14" fill="#48e5ff" opacity=".35" filter="url(#haze)"/>
+</svg>

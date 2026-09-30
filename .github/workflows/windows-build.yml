@@ -1,9 +1,11 @@
+# Builds the Windows desk app (velora_club.exe) on a Windows runner, so a new
+# build doesn't need a developer's PC. Runs on every push to main that touches
+# the app, or by hand from the Actions tab. The ready Release folder is
+# attached to the run as the "velora_club-windows" artifact, and a build of
+# main is also published as a GitHub Release v1.0.<run number> with the
+# folder zipped -- a download link that doesn't expire after 30 days.
 name: Windows build
 
-# The till runs the Windows build. Every change to the app gets a ready
-# zip (the whole Release folder: velora_club.exe plus its DLLs and data);
-# on main it is also published as the "windows-latest" release, so the
-# download link never changes.
 on:
   push:
     branches: [main]
@@ -11,53 +13,57 @@ on:
       - 'lib/**'
       - 'windows/**'
       - 'assets/**'
-      - 'third_party/**'
-      - 'pubspec.*'
-      - '.github/workflows/windows-build.yml'
-  pull_request:
-    paths:
-      - 'lib/**'
-      - 'windows/**'
-      - 'assets/**'
-      - 'third_party/**'
-      - 'pubspec.*'
+      - 'test/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
       - '.github/workflows/windows-build.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: 3.47.5
           cache: true
 
       - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build windows --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }}
 
-      - name: Build
-        run: flutter build windows --release --build-number=${{ github.run_number }}
-
-      - name: Zip
-        shell: pwsh
-        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath VeloraClub-windows.zip
-
+      # Copy the whole Release folder, not just the exe: the exe needs the
+      # DLLs and data/ next to it.
       - uses: actions/upload-artifact@v4
         with:
-          name: VeloraClub-windows
-          path: VeloraClub-windows.zip
+          name: velora_club-windows
+          path: build/windows/x64/runner/Release
+          retention-days: 30
+          if-no-files-found: error
 
+      # One Release per build of main, tagged v1.0.<run number> (the exe
+      # carries the same version), notes = the merged commit's message.
       - name: Publish release
         if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: windows-latest
-          name: Velora Club Windows (latest)
-          prerelease: false
-          make_latest: false
-          files: VeloraClub-windows.zip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ github.event.head_commit.message }}
+        run: |
+          $version = "1.0.${{ github.run_number }}"
+          $zip = "velora_club-windows-$version.zip"
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $zip
+          $notes = if ([string]::IsNullOrWhiteSpace($env:NOTES)) { "Windows build $version" } else { $env:NOTES }
+          Set-Content -Path notes.md -Value $notes -Encoding utf8
+          gh release create "v$version" $zip --title "Velora Club $version" --notes-file notes.md --target $env:GITHUB_SHA
