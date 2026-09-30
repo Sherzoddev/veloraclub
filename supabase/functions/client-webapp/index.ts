@@ -144,7 +144,7 @@ Deno.serve(async (req: Request) => {
     };
 
     if (action === "bootstrap" || action === "me") {
-      const [card, clubResult, botResult, shiftResult, tiersResult, termsResult, unreadResult, matchesResult] = await Promise.all([
+      const [card, clubResult, botResult, shiftResult, tiersResult, termsResult, unreadResult, matchesResult, tournamentsResult] = await Promise.all([
         playerCard(),
         client.from("clubs").select("id,name,phone,address,latitude,longitude,bot_welcome_photo_url,timezone,card_design").eq("id", clubId).single(),
         client.from("club_bots").select("bot_username").eq("club_id", clubId).eq("active", true).limit(1).maybeSingle(),
@@ -170,6 +170,9 @@ Deno.serve(async (req: Request) => {
         // "Найти соперника" teaser on the home screen.
         client.from("match_requests").select("id", { count: "exact", head: true })
           .eq("club_id", clubId).eq("status", "OPEN").gt("play_at", new Date(Date.now() - 3600_000).toISOString()),
+        // "Турниры" tile on the club screen.
+        client.from("tournaments").select("id", { count: "exact", head: true })
+          .eq("club_id", clubId).gt("starts_at", new Date().toISOString()),
       ]);
       const lateUntilActive = clubConfig.late_until && new Date(clubConfig.late_until).getTime() > Date.now();
       // bot_player_card now returns the active reservation inline (see
@@ -203,6 +206,7 @@ Deno.serve(async (req: Request) => {
         termsAccepted: Boolean(termsResult.data?.terms_accepted_at),
         unreadChat: (unreadResult as { count?: number | null }).count ?? 0,
         openMatches: matchesResult.count ?? 0,
+        upcomingTournaments: tournamentsResult.count ?? 0,
       });
     }
 
@@ -507,6 +511,74 @@ Deno.serve(async (req: Request) => {
       }).select("id").single();
       if (error) throw error;
       return json({ ok: true, id: data.id });
+    }
+
+    if (action === "tournaments") {
+      const [{ data, error }, card] = await Promise.all([
+        client.from("tournaments").select("id,title,description,starts_at,max_participants,registration_open")
+          .eq("club_id", clubId).gt("starts_at", new Date().toISOString()).order("starts_at").limit(20),
+        playerCard(),
+      ]);
+      if (error) throw error;
+      const ids = (data ?? []).map((t: any) => t.id);
+      const { data: regs } = ids.length
+        ? await client.from("tournament_registrations").select("tournament_id,telegram_id,first_name,last_name,phone").in("tournament_id", ids)
+        : { data: [] as any[] };
+      return json({
+        tournaments: (data ?? []).map((t: any) => {
+          const mine = (regs ?? []).find((r: any) => r.tournament_id === t.id && Number(r.telegram_id) === tgId);
+          return {
+            id: t.id, title: t.title, description: t.description, when: formatWhen(t.starts_at, zone),
+            max: t.max_participants, open: t.registration_open,
+            count: (regs ?? []).filter((r: any) => r.tournament_id === t.id).length,
+            mine: mine ? { firstName: mine.first_name, lastName: mine.last_name, phone: mine.phone } : null,
+          };
+        }),
+        // Pre-fills the sign-up form from the club card, when there is one.
+        me: card ? { name: card.name, phone: card.phone } : null,
+      });
+    }
+
+    if (action === "tournament_register") {
+      const id = String(payload.id ?? "");
+      const firstName = String(payload.firstName ?? "").trim().slice(0, 60);
+      const lastName = String(payload.lastName ?? "").trim().slice(0, 60);
+      const phone = String(payload.phone ?? "").replace(/[^\d+]/g, "").slice(0, 30);
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ ok: false, reason: "NOT_FOUND" });
+      if (!firstName || !lastName) return json({ ok: false, reason: "BAD_NAME" });
+      if (phone.replace(/\D/g, "").length < 7) return json({ ok: false, reason: "BAD_PHONE" });
+      const card = await playerCard();
+      const { data, error } = await client.rpc("tournament_register", {
+        p_club_id: clubId, p_tournament_id: id, p_telegram_id: tgId, p_customer_id: card?.id ?? null,
+        p_first_name: firstName, p_last_name: lastName, p_phone: phone,
+      });
+      if (error) throw error;
+      if (data?.ok && !data.updated) {
+        EdgeRuntime.waitUntil((async () => {
+          const [{ data: t }, { data: st }] = await Promise.all([
+            client.from("tournaments").select("title,starts_at").eq("id", id).maybeSingle(),
+            client.from("bot_state").select("language").eq("telegram_id", tgId).maybeSingle(),
+          ]);
+          if (!t) return;
+          const ru = st?.language === "ru";
+          await sendTelegram(clubConfig.bot_token, tgId, ru
+            ? `🏆 Вы записаны на турнир <b>${esc(t.title)}</b>\n🗓 ${formatWhen(t.starts_at, zone)}\n\nЖдём вас в клубе!`
+            : `🏆 Siz <b>${esc(t.title)}</b> turniriga yozildingiz\n🗓 ${formatWhen(t.starts_at, zone)}\n\nSizni klubda kutamiz!`,
+            { parse_mode: "HTML" });
+        })());
+      }
+      return json(data ?? {});
+    }
+
+    if (action === "tournament_unregister") {
+      const id = String(payload.id ?? "");
+      const { data: t } = await client.from("tournaments").select("starts_at").eq("id", id).eq("club_id", clubId).maybeSingle();
+      if (!t) return json({ ok: false, reason: "NOT_FOUND" });
+      if (new Date(t.starts_at).getTime() <= Date.now()) return json({ ok: false, reason: "STARTED" });
+      const { error } = await client.from("tournament_registrations").delete()
+        .eq("tournament_id", id).eq("club_id", clubId).eq("telegram_id", tgId);
+      if (error) throw error;
+      return json({ ok: true });
     }
 
     if (action === "setlang") return json({ ok: true, language: "ru" });

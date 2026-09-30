@@ -5,6 +5,7 @@
 // touch the client-facing site.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { strToU8, zipSync } from "https://esm.sh/fflate@0.8.2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -89,6 +90,69 @@ async function uploadPhoto(clubId: string, prefix: string, dataUrl: string): Pro
   const { error } = await client.storage.from("club-assets").upload(path, bytes, { contentType, upsert: true });
   if (error) throw error;
   return client.storage.from("club-assets").getPublicUrl(path).data.publicUrl;
+}
+
+// "YYYY-MM-DDTHH:MM" (a datetime-local input) read as wall-clock time in the
+// club's zone.
+function zonedLocalToUtc(local: string, timeZone: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local);
+  if (!m) return null;
+  const guess = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(guess)).map((p) => [p.type, p.value]));
+  const readBack = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return new Date(guess - (readBack - guess));
+}
+
+function utcToZonedLocal(iso: string, timeZone: string): string {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+  }).formatToParts(new Date(iso)).map((p) => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+// A one-sheet .xlsx built by hand (inline strings, bold header row) -- a
+// real Excel file opens straight from the Telegram chat on a phone, where a
+// CSV shows up as plain text.
+const xmlEsc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
+function colName(i: number) {
+  let n = i + 1, s = "";
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+function buildXlsx(rows: (string | number)[][], widths: number[]): Uint8Array {
+  const sheetRows = rows.map((row, r) => `<row r="${r + 1}">` + row.map((v, c) => {
+    const ref = `${colName(c)}${r + 1}`, style = r === 0 ? ' s="1"' : "";
+    return typeof v === "number"
+      ? `<c r="${ref}"${style}><v>${v}</v></c>`
+      : `<c r="${ref}" t="inlineStr"${style}><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
+  }).join("") + "</row>").join("");
+  const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("");
+  const files: Record<string, Uint8Array> = {
+    "[Content_Types].xml": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`),
+    "_rels/.rels": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`),
+    "xl/workbook.xml": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Участники" sheetId="1" r:id="rId1"/></sheets></workbook>`),
+    "xl/_rels/workbook.xml.rels": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`),
+    "xl/styles.xml": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`),
+    "xl/worksheets/sheet1.xml": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols>${cols}</cols><sheetData>${sheetRows}</sheetData></worksheet>`),
+  };
+  return zipSync(files);
+}
+
+async function sendTelegramDocument(token: string, chatId: number, filename: string, bytes: Uint8Array, caption: string) {
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  form.append("caption", caption);
+  form.append("parse_mode", "HTML");
+  form.append("document", new Blob([new Uint8Array(bytes)], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  }), filename);
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, { method: "POST", body: form });
+  if (!res.ok) console.error("sendDocument", await res.text());
+  return res.ok;
 }
 
 // GET is unused by real traffic (the Mini App is served from Railway,
@@ -356,12 +420,92 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, photoUrl });
     }
 
+    if (action === "tournaments_list") {
+      const [{ data, error }, { data: regs }] = await Promise.all([
+        client.from("tournaments").select("id,title,description,starts_at,max_participants,registration_open")
+          .eq("club_id", clubId).order("starts_at", { ascending: false }).limit(50),
+        client.from("tournament_registrations").select("tournament_id").eq("club_id", clubId),
+      ]);
+      if (error) throw error;
+      const counts = new Map<string, number>();
+      for (const r of (regs ?? []) as { tournament_id: string }[]) counts.set(r.tournament_id, (counts.get(r.tournament_id) ?? 0) + 1);
+      return json({ tournaments: (data ?? []).map((t: any) => ({
+        ...t, when: dayLabel(t.starts_at, zone), startsLocal: utcToZonedLocal(t.starts_at, zone),
+        past: new Date(t.starts_at).getTime() < Date.now(), participants: counts.get(t.id) ?? 0,
+      })) });
+    }
+
+    if (action === "tournament_save") {
+      const id = payload.id ? String(payload.id) : null;
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (payload.title !== undefined) {
+        const title = String(payload.title).trim().slice(0, 120);
+        if (!title) return json({ error: "BAD_TITLE" }, 400);
+        patch.title = title;
+      }
+      if (payload.description !== undefined) patch.description = String(payload.description).trim().slice(0, 1000) || null;
+      if (payload.startsAt !== undefined) {
+        const startsAt = zonedLocalToUtc(String(payload.startsAt), zone);
+        if (!startsAt) return json({ error: "BAD_DATE" }, 400);
+        patch.starts_at = startsAt.toISOString();
+      }
+      if (payload.maxParticipants !== undefined) {
+        const max = Number(payload.maxParticipants);
+        patch.max_participants = Number.isInteger(max) && max > 0 ? Math.min(max, 1000) : null;
+      }
+      if (payload.registrationOpen !== undefined) patch.registration_open = Boolean(payload.registrationOpen);
+      if (id) {
+        const { data: updated, error } = await client.from("tournaments").update(patch)
+          .eq("id", id).eq("club_id", clubId).select("id").maybeSingle();
+        if (error) throw error;
+        if (!updated) return json({ error: "NOT_FOUND" }, 404);
+        return json({ ok: true, id });
+      }
+      if (!patch.title) return json({ error: "BAD_TITLE" }, 400);
+      if (!patch.starts_at) return json({ error: "BAD_DATE" }, 400);
+      const { data, error } = await client.from("tournaments").insert({ club_id: clubId, ...patch }).select("id").single();
+      if (error) throw error;
+      return json({ ok: true, id: data.id });
+    }
+
+    if (action === "tournament_delete") {
+      const { error } = await client.from("tournaments").delete().eq("id", String(payload.id ?? "")).eq("club_id", clubId);
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
     if (action === "settings_set_card_design") {
       const design = String(payload.design ?? "");
       if (!CARD_DESIGNS.has(design)) return json({ error: "BAD_DESIGN" }, 400);
       const { error } = await client.from("clubs").update({ card_design: design }).eq("id", clubId);
       if (error) throw error;
       return json({ ok: true });
+    }
+
+    if (action === "tournament_participants" || action === "tournament_export") {
+      const id = String(payload.id ?? "");
+      const [{ data: tournament }, { data: regs, error }] = await Promise.all([
+        client.from("tournaments").select("id,title,starts_at").eq("id", id).eq("club_id", clubId).maybeSingle(),
+        client.from("tournament_registrations").select("id,first_name,last_name,phone,created_at")
+          .eq("tournament_id", id).eq("club_id", clubId).order("created_at"),
+      ]);
+      if (error) throw error;
+      if (!tournament) return json({ error: "NOT_FOUND" }, 404);
+      const list = (regs ?? []) as { id: string; first_name: string; last_name: string; phone: string; created_at: string }[];
+      if (action === "tournament_participants") {
+        return json({ participants: list.map((r) => ({ ...r, when: dayLabel(r.created_at, zone) })) });
+      }
+      const rows: (string | number)[][] = [
+        ["№", "Фамилия", "Имя", "Телефон", "Дата записи"],
+        ...list.map((r, i) => [i + 1, r.last_name, r.first_name, r.phone, dayLabel(r.created_at, zone)]),
+      ];
+      const day = utcToZonedLocal(tournament.starts_at, zone).slice(0, 10);
+      const safeTitle = String(tournament.title).replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "turnir";
+      const sent = await sendTelegramDocument(
+        clubConfig.bot_token, verified.tgId, `${safeTitle}_${day}.xlsx`, buildXlsx(rows, [5, 22, 18, 18, 16]),
+        `🏆 <b>${esc(tournament.title)}</b>\n${dayLabel(tournament.starts_at, zone)} · участников: ${list.length}`,
+      );
+      return json({ ok: sent, count: list.length });
     }
 
     return json({ error: "UNKNOWN_ACTION" }, 404);

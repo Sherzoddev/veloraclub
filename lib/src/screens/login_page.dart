@@ -70,7 +70,8 @@ class _LoginPageState extends State<LoginPage> {
     }
     await _run(() async {
       final value = code.isNotEmpty
-          ? await service.activateAndConnect(activationCode: code, venueToken: token)
+          ? await service.activateAndConnect(
+              activationCode: code, venueToken: token)
           : await service.connectVenue(token);
       if (mounted) {
         setState(() {
@@ -95,6 +96,7 @@ class _LoginPageState extends State<LoginPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(tr('Birinchi xodimlarni yaratish')),
         content: Text(
           'Administrator PIN: 0610\n${tr('Kassir')} PIN: 0000\n\n'
@@ -145,24 +147,36 @@ class _LoginPageState extends State<LoginPage> {
     return ListenableBuilder(
       listenable: LocaleController.instance,
       builder: (context, _) => Scaffold(
-        body: Row(
-          children: [
-            const Expanded(flex: 5, child: _BrandPanel()),
-            Expanded(
-              flex: 6,
-              child: Stack(
-                children: [
-                  Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(40),
-                      child: SizedBox(width: 480, child: _content(context)),
+        body: SafeArea(
+          child: LayoutBuilder(builder: (context, constraints) {
+            // Phones: just the form; the brand panel needs a wide screen.
+            final narrow = constraints.maxWidth < 820;
+            final form = Stack(
+              children: [
+                Center(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(narrow ? 20 : 40,
+                        narrow ? 64 : 40, narrow ? 20 : 40, narrow ? 20 : 40),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: _content(context),
                     ),
                   ),
-                  const Positioned(top: 20, right: 24, child: _LangSwitch()),
-                ],
-              ),
-            ),
-          ],
+                ),
+                Positioned(
+                    top: narrow ? 12 : 20,
+                    right: narrow ? 16 : 24,
+                    child: const _LangSwitch()),
+              ],
+            );
+            if (narrow) return form;
+            return Row(
+              children: [
+                const Expanded(flex: 5, child: _BrandPanel()),
+                Expanded(flex: 6, child: form),
+              ],
+            );
+          }),
         ),
       ),
     );
@@ -215,7 +229,8 @@ class _LoginPageState extends State<LoginPage> {
           textCapitalization: TextCapitalization.characters,
           decoration: InputDecoration(
             labelText: tr('Faollashtirish kodi'),
-            helperText: needsCode ? null : tr('Ixtiyoriy — faqat yangi klub uchun'),
+            helperText:
+                needsCode ? null : tr('Ixtiyoriy — faqat yangi klub uchun'),
             prefixIcon: const Icon(Icons.key_rounded),
           ),
         ),
@@ -234,10 +249,12 @@ class _LoginPageState extends State<LoginPage> {
         const SizedBox(height: 10),
         if (switching)
           TextButton.icon(
-            onPressed: busy ? null : () => setState(() {
-              switching = false;
-              error = null;
-            }),
+            onPressed: busy
+                ? null
+                : () => setState(() {
+                      switching = false;
+                      error = null;
+                    }),
             icon: const Icon(Icons.arrow_back_rounded),
             label: Text(tr('Orqaga')),
           )
@@ -310,10 +327,12 @@ class _LoginPageState extends State<LoginPage> {
         ],
         const SizedBox(height: 10),
         TextButton.icon(
-          onPressed: busy ? null : () => setState(() {
-            switching = true;
-            error = null;
-          }),
+          onPressed: busy
+              ? null
+              : () => setState(() {
+                    switching = true;
+                    error = null;
+                  }),
           icon: const Icon(Icons.swap_horiz_rounded),
           label: Text(tr('Boshqa klubga ulash')),
         ),
@@ -327,8 +346,7 @@ class _LoginPageState extends State<LoginPage> {
       children: [
         Text(title, style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 8),
-        Text(subtitle,
-            style: TextStyle(color: VColors.muted, fontSize: 16)),
+        Text(subtitle, style: TextStyle(color: VColors.muted, fontSize: 16)),
         const SizedBox(height: 28),
       ],
     );

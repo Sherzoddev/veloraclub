@@ -14,6 +14,7 @@
 // it only knows how to get bytes to a device.
 
 import 'dart:ffi';
+import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
@@ -95,6 +96,7 @@ abstract final class PrinterService {
   /// Printers already installed in Windows (Settings → Printers & scanners),
   /// via `EnumPrintersW` — the same list `raw-print.ps1`-style tools see.
   static List<String> listWindowsPrinters() {
+    if (!Platform.isWindows) return const [];
     final flags = PRINTER_ENUM_LOCAL | PRINTER_ENUM_CONNECTIONS;
     final needed = calloc<Uint32>();
     final returned = calloc<Uint32>();
@@ -133,6 +135,9 @@ abstract final class PrinterService {
   /// RAW data (any ESC/POS or "Generic / Text Only" printer does).
   static Future<void> printRawToWindows(
       String printerName, Uint8List bytes) async {
+    if (!Platform.isWindows) {
+      throw PrinterException('Windows printeri faqat kompyuterda ishlaydi');
+    }
     final nameP = PCWSTR(printerName.toNativeUtf16());
     final docNameP = PWSTR('Velora Club Chek'.toNativeUtf16());
     final dataTypeP = PWSTR('RAW'.toNativeUtf16());
@@ -194,13 +199,25 @@ abstract final class PrinterService {
   /// FTDI, …) and paired Bluetooth SPP devices both show up here identically,
   /// which is why the "USB-kabel" and "Bluetooth (COM-port)" tabs share this
   /// same picker.
-  static List<String> listSerialPorts() => SerialPort.availablePorts;
+  static List<String> listSerialPorts() {
+    if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
+      return const [];
+    }
+    try {
+      return SerialPort.availablePorts;
+    } catch (_) {
+      return const [];
+    }
+  }
 
   static Future<void> printRawToSerial(
     String portName,
     Uint8List bytes, {
     int baudRate = 9600,
   }) async {
+    if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
+      throw PrinterException('COM-port faqat kompyuterda ishlaydi');
+    }
     final port = SerialPort(portName);
     if (!port.openReadWrite()) {
       final error = SerialPort.lastError;
@@ -219,7 +236,8 @@ abstract final class PrinterService {
         ..setFlowControl(SerialPortFlowControl.none);
       final written = port.write(bytes);
       if (written != bytes.length) {
-        throw PrinterException('Barcha ma\'lumot yuborilmadi ($written/${bytes.length} bayt)');
+        throw PrinterException(
+            'Barcha ma\'lumot yuborilmadi ($written/${bytes.length} bayt)');
       }
     } finally {
       port.close();

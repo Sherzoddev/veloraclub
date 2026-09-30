@@ -12,7 +12,7 @@ class WaitlistPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.all(30),
+        padding: pagePadding(context),
         child: Column(children: [
           PageHeader(title: tr('Navbat'), actions: [
             IconButton(
@@ -41,37 +41,36 @@ class WaitlistPage extends StatelessWidget {
                         itemBuilder: (_, i) {
                           final r = rows[i];
                           return VCard(
-                              child: Row(children: [
-                            Expanded(
-                                child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                  Text(
-                                      '${r['customer_name'] ?? r['full_name'] ?? tr('Mijoz')}',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 17)),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                      '${tr(r['resource_family'] ?? 'Bilyard')} · ${tr('kutmoqda')} ${durationFrom(r['joined_at'])}',
-                                      style: TextStyle(
-                                          color: VColors.muted)),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                      '${tr('Chegirma to\'plandi')}: ${money(r['accrued_discount'] ?? 0)}',
-                                      style: TextStyle(
-                                          color: VColors.green,
-                                          fontWeight: FontWeight.w800))
-                                ])),
-                            TextButton(
-                                onPressed: () => _cancel(context, r),
-                                child: Text(tr('Bekor qilish'))),
-                            const SizedBox(width: 10),
-                            FilledButton(
-                                onPressed: () => _seat(context, r),
-                                child: Text(tr('O\'tqazish'))),
-                          ]));
+                              child: AdaptiveRow(
+                                  content: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                            '${r['customer_name'] ?? r['full_name'] ?? tr('Mijoz')}',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 17)),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                            '${tr(r['resource_family'] ?? 'Bilyard')} · ${tr('kutmoqda')} ${durationFrom(r['joined_at'])}',
+                                            style: TextStyle(
+                                                color: VColors.muted)),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                            '${tr('Chegirma to\'plandi')}: ${money(r['accrued_discount'] ?? 0)}',
+                                            style: TextStyle(
+                                                color: VColors.green,
+                                                fontWeight: FontWeight.w800))
+                                      ]),
+                                  actions: [
+                                TextButton(
+                                    onPressed: () => _cancel(context, r),
+                                    child: Text(tr('Bekor qilish'))),
+                                FilledButton(
+                                    onPressed: () => _seat(context, r),
+                                    child: Text(tr('O\'tqazish'))),
+                              ]));
                         });
                   }))
         ]),
@@ -86,13 +85,14 @@ class WaitlistPage extends StatelessWidget {
         context: context,
         builder: (context) => StatefulBuilder(
             builder: (context, setState) => AlertDialog(
+                    scrollable: true,
                     title: Text(tr('Navbatga qo\'shish')),
                     content: SizedBox(
                         width: 480,
                         child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: customerId,
-                            decoration:
-                                InputDecoration(labelText: tr('Mijoz')),
+                            decoration: InputDecoration(labelText: tr('Mijoz')),
                             items: customers
                                 .map((c) => DropdownMenuItem(
                                     value: '${c['id']}',
@@ -142,10 +142,12 @@ class WaitlistPage extends StatelessWidget {
         context: context,
         builder: (context) => StatefulBuilder(
             builder: (context, setState) => AlertDialog(
+                    scrollable: true,
                     title: Text(tr('Joy tanlang')),
                     content: SizedBox(
                         width: 430,
                         child: DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: id,
                             items: free
                                 .map((e) => DropdownMenuItem(
@@ -164,7 +166,8 @@ class WaitlistPage extends StatelessWidget {
     if (ok == true && id != null) {
       final resource = free.firstWhere((e) => '${e['id']}' == id);
       try {
-        final result = rowMap(await controller.repository.client.rpc('waitlist_seat', params: {
+        final result = rowMap(
+            await controller.repository.client.rpc('waitlist_seat', params: {
           'p_entry_id': r['id'],
           'p_resource_id': id,
           'p_tariff_id': resource['default_tariff_id'],
@@ -175,7 +178,8 @@ class WaitlistPage extends StatelessWidget {
         // switch -- otherwise a table seated from the queue never gets its
         // light turned on.
         try {
-          await controller.repository.switchRelayDevice(result['relay_device'], true);
+          await controller.repository
+              .switchRelayDevice(result['relay_device'], true);
         } catch (_) {}
         controller.refresh();
       } catch (e) {

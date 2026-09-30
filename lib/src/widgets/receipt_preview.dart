@@ -63,10 +63,9 @@ class ReceiptPreview extends StatelessWidget {
     final qrEnabled = club['receipt_qr_enabled'] != false;
     final qrUrl = club['receipt_qr_url'] as String?;
     final qrCaption = club['receipt_qr_caption'] as String?;
-    final title =
-        (club['receipt_header'] as String?)?.trim().isNotEmpty == true
-            ? club['receipt_header'] as String
-            : '${club['name'] ?? ''}';
+    final title = (club['receipt_header'] as String?)?.trim().isNotEmpty == true
+        ? club['receipt_header'] as String
+        : '${club['name'] ?? ''}';
     final timeLines = lines.where((l) => l.kind == 'time').toList();
     final productLines = lines.where((l) => l.kind != 'time').toList();
     final timeTotal = timeLines.fold<int>(0, (s, l) => s + l.amount);
@@ -84,7 +83,9 @@ class ReceiptPreview extends StatelessWidget {
           Text(title.toUpperCase(),
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: _ink, fontWeight: FontWeight.w900, fontSize: fontTitle)),
+                  color: _ink,
+                  fontWeight: FontWeight.w900,
+                  fontSize: fontTitle)),
           if (subtitle != null && subtitle.trim().isNotEmpty)
             Text(subtitle,
                 textAlign: TextAlign.center,
@@ -102,15 +103,19 @@ class ReceiptPreview extends StatelessWidget {
           Text(receiptNumber != null ? 'Chek №$receiptNumber' : 'Chek',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: _ink, fontWeight: FontWeight.w900, fontSize: fontMeta)),
+                  color: _ink,
+                  fontWeight: FontWeight.w900,
+                  fontSize: fontMeta)),
           const SizedBox(height: 8),
           _line('Kassir:', cashierName, fontMeta),
           if (sessionStartedAt != null)
-            _line('Boshlanishi:', _clockWithSeconds(sessionStartedAt!), fontMeta),
+            _line(
+                'Boshlanishi:', _clockWithSeconds(sessionStartedAt!), fontMeta),
           if (sessionEndedAt != null)
             _line('Tugash:', _clockWithSeconds(sessionEndedAt!), fontMeta),
           if (sessionStartedAt != null && sessionEndedAt != null)
-            _line('Davomiylik:',
+            _line(
+                'Davomiylik:',
                 _durationPrecise(sessionEndedAt!.difference(sessionStartedAt!)),
                 fontMeta),
           if (resourceName != null) ...[
@@ -127,7 +132,9 @@ class ReceiptPreview extends StatelessWidget {
             const SizedBox(height: 10),
             Text((familyLabel ?? 'Vaqt').toUpperCase(),
                 style: TextStyle(
-                    color: _ink, fontWeight: FontWeight.w900, fontSize: fontItems)),
+                    color: _ink,
+                    fontWeight: FontWeight.w900,
+                    fontSize: fontItems)),
             _line('Narxi:', money(timeTotal), fontMeta),
             const SizedBox(height: 6),
             _dashedDivider(),
@@ -158,7 +165,9 @@ class ReceiptPreview extends StatelessWidget {
             const SizedBox(height: 10),
             Text('TOVARLAR',
                 style: TextStyle(
-                    color: _ink, fontWeight: FontWeight.w900, fontSize: fontItems)),
+                    color: _ink,
+                    fontWeight: FontWeight.w900,
+                    fontSize: fontItems)),
             for (final l in productLines) ...[
               _item(l.quantity != null ? '${l.quantity} × ${l.label}' : l.label,
                   money(l.amount), fontItems),
@@ -244,7 +253,9 @@ class ReceiptPreview extends StatelessWidget {
         child: Row(children: [
           Text(label, style: TextStyle(color: _ink, fontSize: size)),
           const SizedBox(width: 6),
-          Expanded(child: Text(value, style: TextStyle(color: _ink, fontSize: size))),
+          Expanded(
+              child:
+                  Text(value, style: TextStyle(color: _ink, fontSize: size))),
         ]),
       );
 

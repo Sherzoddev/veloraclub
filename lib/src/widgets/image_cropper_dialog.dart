@@ -96,8 +96,8 @@ class _ImageCropperDialogState extends State<ImageCropperDialog> {
     final relY = (cy - _offset.dy) / oldScale;
     setState(() {
       _zoom = v;
-      _offset = _clamp(
-          Offset(cx - relX * newScale, cy - relY * newScale), newScale);
+      _offset =
+          _clamp(Offset(cx - relX * newScale, cy - relY * newScale), newScale);
     });
   }
 
@@ -195,7 +195,8 @@ class _ImageCropperDialogState extends State<ImageCropperDialog> {
 }
 
 class _CropPainter extends CustomPainter {
-  _CropPainter({required this.image, required this.scale, required this.offset});
+  _CropPainter(
+      {required this.image, required this.scale, required this.offset});
   final ui.Image image;
   final double scale;
   final Offset offset;

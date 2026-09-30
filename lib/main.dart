@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -22,17 +24,21 @@ Future<void> main() async {
         ? null
         : {'x-venue-token': venueToken},
   );
-  await windowManager.ensureInitialized();
-  final options = WindowOptions(
-    size: const Size(1440, 900),
-    minimumSize: const Size(1120, 700),
-    center: true,
-    title: 'Velora Club',
-    backgroundColor: VColors.bg,
-  );
-  await windowManager.waitUntilReadyToShow(options, () async {
-    await windowManager.show();
-    await windowManager.focus();
-  });
+  // The window setup is desktop-only; on Android the app is a normal
+  // full-screen activity.
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await windowManager.ensureInitialized();
+    final options = WindowOptions(
+      size: const Size(1440, 900),
+      minimumSize: const Size(1120, 700),
+      center: true,
+      title: 'Velora Club',
+      backgroundColor: VColors.bg,
+    );
+    await windowManager.waitUntilReadyToShow(options, () async {
+      await windowManager.show();
+      await windowManager.focus();
+    });
+  }
   runApp(const VeloraApp());
 }

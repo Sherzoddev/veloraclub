@@ -65,3 +65,7 @@ tsc_out.txt
 # Local tooling state
 .claude/
 .railway/
+
+# Layout-test screenshots (flutter test test/layout --update-goldens)
+test/layout/goldens/
+test/layout/failures/

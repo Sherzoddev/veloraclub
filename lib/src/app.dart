@@ -16,8 +16,8 @@ class VeloraApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable:
-          Listenable.merge([ThemeController.instance, LocaleController.instance]),
+      listenable: Listenable.merge(
+          [ThemeController.instance, LocaleController.instance]),
       builder: (context, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Velora Club',

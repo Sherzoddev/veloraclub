@@ -17,7 +17,7 @@ class _CustomersPageState extends State<CustomersPage> {
   String query = '';
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.all(30),
+      padding: pagePadding(context),
       child: Column(children: [
         PageHeader(
             title: tr('Mijozlar'),
@@ -53,32 +53,60 @@ class _CustomersPageState extends State<CustomersPage> {
                       itemBuilder: (_, i) {
                         final c = filtered[i];
                         final tier = c['loyalty_tiers'];
-                        return ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 18, vertical: 9),
-                            leading: CircleAvatar(
-                                radius: 26,
-                                backgroundColor: VColors.green,
-                                child: const Icon(Icons.person_outline_rounded,
-                                    color: Colors.white)),
-                            title: Text('${c['full_name'] ?? tr('Mijoz')}',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w700)),
-                            subtitle: Text(
-                                '${c['phone'] ?? ''} · ${tier is Map ? tier['name'] : 'Новичок'}${c['discount_percent'] != 0 ? ' · ${tr('chegirma')} ${c['discount_percent']}%' : ''}'),
-                            trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(money(c['total_spent']),
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w900)),
-                                  Text(
-                                      '${c['visits_count']} ${tr('ta tashrif')} · ${c['bonus_points']} ${tr('ball')}',
-                                      style: TextStyle(
-                                          color: VColors.subtle, fontSize: 13))
-                                ]),
-                            onTap: () => _details(context, c));
+                        final stats = [
+                          Text(money(c['total_spent']),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w900)),
+                          Text(
+                              '${c['visits_count']} ${tr('ta tashrif')} · ${c['bonus_points']} ${tr('ball')}',
+                              style: TextStyle(
+                                  color: VColors.subtle, fontSize: 13))
+                        ];
+                        final compact = isCompactWidth(context);
+                        return InkWell(
+                            onTap: () => _details(context, c),
+                            child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: compact ? 8 : 18, vertical: 12),
+                                child: Row(children: [
+                                  CircleAvatar(
+                                      radius: compact ? 22 : 26,
+                                      backgroundColor: VColors.green,
+                                      child: const Icon(
+                                          Icons.person_outline_rounded,
+                                          color: Colors.white)),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                      child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                        Text('${c['full_name'] ?? tr('Mijoz')}',
+                                            style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 16)),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                            '${c['phone'] ?? ''} · ${tier is Map ? tier['name'] : 'Новичок'}${c['discount_percent'] != 0 ? ' · ${tr('chegirma')} ${c['discount_percent']}%' : ''}',
+                                            style: TextStyle(
+                                                color: VColors.muted)),
+                                        if (compact) ...[
+                                          const SizedBox(height: 4),
+                                          Wrap(
+                                              spacing: 10,
+                                              crossAxisAlignment:
+                                                  WrapCrossAlignment.center,
+                                              children: stats),
+                                        ]
+                                      ])),
+                                  if (!compact) ...[
+                                    const SizedBox(width: 14),
+                                    Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: stats),
+                                  ]
+                                ])));
                       });
                 }))
       ]));
@@ -88,6 +116,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
+                scrollable: true,
                 title: Text(tr('Yangi mijoz')),
                 content: SizedBox(
                     width: 480,
@@ -98,8 +127,7 @@ class _CustomersPageState extends State<CustomersPage> {
                       const SizedBox(height: 12),
                       TextField(
                           controller: phone,
-                          decoration:
-                              InputDecoration(labelText: tr('Telefon')))
+                          decoration: InputDecoration(labelText: tr('Telefon')))
                     ])),
                 actions: [
                   TextButton(
@@ -133,6 +161,7 @@ class _CustomersPageState extends State<CustomersPage> {
     await showDialog(
         context: context,
         builder: (context) => AlertDialog(
+                scrollable: true,
                 title: Text('${c['full_name'] ?? tr('Mijoz')}'),
                 content: SizedBox(
                     width: 500,
@@ -146,7 +175,8 @@ class _CustomersPageState extends State<CustomersPage> {
                       _TierProgress(customer: c, tiers: tiers),
                       const SizedBox(height: 6),
                       _Info(tr('Balans'), money(c['balance'])),
-                      _Info(tr('Bonuslar'), '${c['bonus_points']} ${tr('ball')}'),
+                      _Info(
+                          tr('Bonuslar'), '${c['bonus_points']} ${tr('ball')}'),
                       _Info(tr('Chegirma'), '${c['discount_percent']}%'),
                       _Info(tr('Qarz'), money(c['debt_amount'])),
                       _Info(tr('Jami sarflangan'), money(c['total_spent'])),
@@ -194,7 +224,8 @@ class _CustomersPageState extends State<CustomersPage> {
     await showDialog(
         context: context,
         builder: (context) => AlertDialog(
-              title: Text('${c['full_name'] ?? tr('Mijoz')} · ${tr('buyurtmalar')}'),
+              title: Text(
+                  '${c['full_name'] ?? tr('Mijoz')} · ${tr('buyurtmalar')}'),
               content: SizedBox(
                 width: 480,
                 height: 480,
@@ -223,8 +254,8 @@ class _CustomersPageState extends State<CustomersPage> {
                                     fontWeight: FontWeight.w700)),
                             subtitle: Text(shortDate(o['created_at'])),
                             trailing: Text(money(o['total_amount']),
-                                style:
-                                    const TextStyle(fontWeight: FontWeight.w900)),
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w900)),
                           );
                         },
                       ),
@@ -243,6 +274,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
+                scrollable: true,
                 title: Text(tr('Bonuslarni o\'zgartirish')),
                 content: TextField(
                     controller: ctrl,
@@ -273,6 +305,7 @@ class _CustomersPageState extends State<CustomersPage> {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
+                scrollable: true,
                 title: Text(tr('Chegirma')),
                 content: TextField(
                     controller: ctrl,
@@ -304,7 +337,8 @@ class _CustomersPageState extends State<CustomersPage> {
     final repo = widget.controller.repository;
     final clubId = widget.controller.context!.clubId;
     final basePercent = TextEditingController(
-        text: '${widget.controller.context!.club['loyalty_earn_percent'] ?? 0}');
+        text:
+            '${widget.controller.context!.club['loyalty_earn_percent'] ?? 0}');
     final visitBonus = TextEditingController(
         text: '${widget.controller.context!.club['visit_bonus_points'] ?? 0}');
 
@@ -338,7 +372,8 @@ class _CustomersPageState extends State<CustomersPage> {
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(
                               labelText: tr('Darajasiz mijozlar uchun bonus %'),
-                              helperText: tr('Darajasi bo\'lmagan mijozlar uchun')),
+                              helperText:
+                                  tr('Darajasi bo\'lmagan mijozlar uchun')),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -348,7 +383,8 @@ class _CustomersPageState extends State<CustomersPage> {
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(
                               labelText: tr('Tashrif uchun bonus'),
-                              helperText: tr('Kuniga 1 marta, 0 — o\'chirilgan')),
+                              helperText:
+                                  tr('Kuniga 1 marta, 0 — o\'chirilgan')),
                         ),
                       ),
                     ]),
@@ -396,19 +432,18 @@ class _CustomersPageState extends State<CustomersPage> {
                                     title: Text('${t['name']}',
                                         style: const TextStyle(
                                             fontWeight: FontWeight.w800)),
-                                    subtitle: Text(LocaleController.instance.isRu
+                                    subtitle: Text(LocaleController
+                                            .instance.isRu
                                         ? 'от ${money(t['min_total_spent'])} · бонус ${t['earn_percent']}% · скидка ${t['discount_percent']}%'
                                         : '${money(t['min_total_spent'])} dan · bonus ${t['earn_percent']}% · chegirma ${t['discount_percent']}%'),
                                     trailing: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         IconButton(
-                                          icon: const Icon(
-                                              Icons.edit_outlined,
+                                          icon: const Icon(Icons.edit_outlined,
                                               size: 19),
                                           onPressed: () async {
-                                            await _editTier(
-                                                context, clubId, t);
+                                            await _editTier(context, clubId, t);
                                             reload();
                                           },
                                         ),
@@ -420,8 +455,8 @@ class _CustomersPageState extends State<CustomersPage> {
                                           onPressed: () async {
                                             await repo.client
                                                 .from('loyalty_tiers')
-                                                .update({'active': false})
-                                                .eq('id', t['id']);
+                                                .update({'active': false}).eq(
+                                                    'id', t['id']);
                                             reload();
                                           },
                                         ),
@@ -441,7 +476,8 @@ class _CustomersPageState extends State<CustomersPage> {
                             await repo.client.rpc('app_refresh_club_tiers',
                                 params: {'p_club_id': clubId});
                             if (context.mounted) {
-                              showDone(context, tr('Darajalar qayta hisoblandi'));
+                              showDone(
+                                  context, tr('Darajalar qayta hisoblandi'));
                             }
                             widget.controller.refresh();
                           } catch (e) {
@@ -466,8 +502,7 @@ class _CustomersPageState extends State<CustomersPage> {
                     await repo.client.from('clubs').update({
                       'loyalty_earn_percent':
                           int.tryParse(basePercent.text) ?? 0,
-                      'visit_bonus_points':
-                          int.tryParse(visitBonus.text) ?? 0,
+                      'visit_bonus_points': int.tryParse(visitBonus.text) ?? 0,
                     }).eq('id', clubId);
                     await widget.controller.reloadContext();
                     if (context.mounted) Navigator.pop(context);
@@ -484,8 +519,8 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
-  Future<void> _editTier(BuildContext context, String clubId,
-      Map<String, dynamic>? tier) async {
+  Future<void> _editTier(
+      BuildContext context, String clubId, Map<String, dynamic>? tier) async {
     final name = TextEditingController(text: '${tier?['name'] ?? ''}');
     final minSpent =
         TextEditingController(text: '${tier?['min_total_spent'] ?? 0}');
@@ -496,7 +531,9 @@ class _CustomersPageState extends State<CustomersPage> {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-                title: Text(tr(tier == null ? 'Yangi daraja' : 'Darajani tahrirlash')),
+                scrollable: true,
+                title: Text(
+                    tr(tier == null ? 'Yangi daraja' : 'Darajani tahrirlash')),
                 content: SizedBox(
                     width: 420,
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -574,10 +611,12 @@ class _TierProgress extends StatelessWidget {
     final next = index + 1 < tiers.length ? tiers[index + 1] : null;
     final spent = (customer['total_spent'] as num?) ?? 0;
     final currentMin = (current['min_total_spent'] as num?) ?? 0;
-    final nextMin = next == null ? null : (next['min_total_spent'] as num?) ?? 0;
+    final nextMin =
+        next == null ? null : (next['min_total_spent'] as num?) ?? 0;
     final progress = next == null
         ? 1.0
-        : ((spent - currentMin) / ((nextMin! - currentMin).clamp(1, double.infinity)))
+        : ((spent - currentMin) /
+                ((nextMin! - currentMin).clamp(1, double.infinity)))
             .clamp(0.0, 1.0)
             .toDouble();
     return Container(
@@ -592,11 +631,13 @@ class _TierProgress extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(Icons.workspace_premium_rounded, color: VColors.green, size: 20),
+            Icon(Icons.workspace_premium_rounded,
+                color: VColors.green, size: 20),
             const SizedBox(width: 8),
             Expanded(
               child: Text('${current['name'] ?? ''}',
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, fontSize: 16)),
             ),
             Pill('${tr('bonus')} ${current['earn_percent'] ?? 0}%',
                 color: VColors.green, foreground: Colors.black87),

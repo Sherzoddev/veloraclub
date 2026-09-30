@@ -94,10 +94,9 @@ class _SessionProductsPageState extends State<SessionProductsPage> {
 
               final filtered = data.products
                   .where((p) => p['active'] == true)
-                  .where((p) => category == 'ALL' ||
-                      '${p['category_id']}' == category)
                   .where((p) =>
-                      '${p['name']}'.toLowerCase().contains(query))
+                      category == 'ALL' || '${p['category_id']}' == category)
+                  .where((p) => '${p['name']}'.toLowerCase().contains(query))
                   .toList()
                 ..sort((a, b) {
                   final sa = data.sales['${a['id']}'] ?? 0;
@@ -154,13 +153,13 @@ class _SessionProductsPageState extends State<SessionProductsPage> {
                                         border: OutlineInputBorder(
                                             borderRadius:
                                                 BorderRadius.circular(12),
-                                            borderSide:
-                                                BorderSide(color: VColors.line)),
+                                            borderSide: BorderSide(
+                                                color: VColors.line)),
                                         enabledBorder: OutlineInputBorder(
                                             borderRadius:
                                                 BorderRadius.circular(12),
-                                            borderSide:
-                                                BorderSide(color: VColors.line)),
+                                            borderSide: BorderSide(
+                                                color: VColors.line)),
                                         focusedBorder: OutlineInputBorder(
                                             borderRadius:
                                                 BorderRadius.circular(12),
@@ -169,7 +168,8 @@ class _SessionProductsPageState extends State<SessionProductsPage> {
                                                 width: 1.5)),
                                         prefixIcon: Icon(
                                             Icons.qr_code_scanner_rounded,
-                                            color: VColors.green, size: 19),
+                                            color: VColors.green,
+                                            size: 19),
                                       ),
                                     ),
                                   ),
@@ -204,8 +204,7 @@ class _SessionProductsPageState extends State<SessionProductsPage> {
                                               const EdgeInsets.only(left: 8),
                                           child: CategoryIconChip(
                                             label: '${c['name']}',
-                                            selected:
-                                                category == '${c['id']}',
+                                            selected: category == '${c['id']}',
                                             icon: c['icon'] as String?,
                                             fallbackIndex: i,
                                             color: c['color'] != null
@@ -215,8 +214,8 @@ class _SessionProductsPageState extends State<SessionProductsPage> {
                                                             '#', 'FF'),
                                                     radix: 16))
                                                 : null,
-                                            onTap: () => setState(() =>
-                                                category = '${c['id']}'),
+                                            onTap: () => setState(
+                                                () => category = '${c['id']}'),
                                           ),
                                         ),
                                     ],
@@ -237,22 +236,22 @@ class _SessionProductsPageState extends State<SessionProductsPage> {
                                                   .floor()
                                                   .clamp(3, 9);
                                           return GridView.builder(
-                                          gridDelegate:
-                                              SliverGridDelegateWithFixedCrossAxisCount(
-                                            crossAxisCount: count,
-                                            crossAxisSpacing: 10,
-                                            mainAxisSpacing: 10,
-                                            childAspectRatio: .72,
-                                          ),
-                                          itemCount: filtered.length,
-                                          itemBuilder: (context, i) {
-                                            final p = filtered[i];
-                                            return ProductGridCard(
-                                              product: p,
-                                              onTap: () => _add(p),
-                                            );
-                                          },
-                                        );
+                                            gridDelegate:
+                                                SliverGridDelegateWithFixedCrossAxisCount(
+                                              crossAxisCount: count,
+                                              crossAxisSpacing: 10,
+                                              mainAxisSpacing: 10,
+                                              childAspectRatio: .72,
+                                            ),
+                                            itemCount: filtered.length,
+                                            itemBuilder: (context, i) {
+                                              final p = filtered[i];
+                                              return ProductGridCard(
+                                                product: p,
+                                                onTap: () => _add(p),
+                                              );
+                                            },
+                                          );
                                         }),
                                 ),
                               ],
@@ -272,14 +271,13 @@ class _SessionProductsPageState extends State<SessionProductsPage> {
                                 Expanded(
                                   child: items.isEmpty
                                       ? Text('Hali tovar qo\'shilmagan',
-                                          style: TextStyle(
-                                              color: VColors.subtle))
+                                          style:
+                                              TextStyle(color: VColors.subtle))
                                       : ListView.separated(
                                           itemCount: items.length,
                                           separatorBuilder: (_, __) =>
                                               const SizedBox(height: 12),
-                                          itemBuilder: (context, i) =>
-                                              _CartRow(
+                                          itemBuilder: (context, i) => _CartRow(
                                             item: items[i],
                                             onInc: () => _add({
                                               'id': items[i]['product_id'],
@@ -343,7 +341,8 @@ class _Data {
 }
 
 class _CartRow extends StatelessWidget {
-  const _CartRow({required this.item, required this.onInc, required this.onDec});
+  const _CartRow(
+      {required this.item, required this.onInc, required this.onDec});
   final Map<String, dynamic> item;
   final VoidCallback onInc;
   final VoidCallback onDec;

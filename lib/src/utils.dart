@@ -5,9 +5,12 @@ import 'theme.dart';
 
 final _money = NumberFormat.decimalPattern('ru_RU');
 
+/// "1 234 567 so'm" joined with no-break spaces, so a sum never splits
+/// across lines ("1 234" / "567 so'm") however narrow the screen. The
+/// receipt printer turns them back into plain spaces (EscPosBuilder).
 String money(dynamic value) {
   final number = value is num ? value : num.tryParse('$value') ?? 0;
-  return '${_money.format(number).replaceAll('\u00a0', ' ')} so\'m';
+  return '${_money.format(number).replaceAll(' ', '\u00a0')}\u00a0so\'m';
 }
 
 String shortDate(dynamic value) {
@@ -24,18 +27,70 @@ String shortDate(dynamic value) {
 // each Cyrillic character back to the Latin one on the same key, so a scan
 // still resolves correctly no matter which layout was active.
 const Map<String, String> _yicukenToLatin = {
-  'й': 'q', 'ц': 'w', 'у': 'e', 'к': 'r', 'е': 't', 'н': 'y', 'г': 'u',
-  'ш': 'i', 'щ': 'o', 'з': 'p', 'х': '[', 'ъ': ']',
-  'ф': 'a', 'ы': 's', 'в': 'd', 'а': 'f', 'п': 'g', 'р': 'h', 'о': 'j',
-  'л': 'k', 'д': 'l', 'ж': ';', 'э': "'",
-  'я': 'z', 'ч': 'x', 'с': 'c', 'м': 'v', 'и': 'b', 'т': 'n', 'ь': 'm',
-  'б': ',', 'ю': '.',
-  'Й': 'Q', 'Ц': 'W', 'У': 'E', 'К': 'R', 'Е': 'T', 'Н': 'Y', 'Г': 'U',
-  'Ш': 'I', 'Щ': 'O', 'З': 'P', 'Х': '{', 'Ъ': '}',
-  'Ф': 'A', 'Ы': 'S', 'В': 'D', 'А': 'F', 'П': 'G', 'Р': 'H', 'О': 'J',
-  'Л': 'K', 'Д': 'L', 'Ж': ':', 'Э': '"',
-  'Я': 'Z', 'Ч': 'X', 'С': 'C', 'М': 'V', 'И': 'B', 'Т': 'N', 'Ь': 'M',
-  'Б': '<', 'Ю': '>',
+  'й': 'q',
+  'ц': 'w',
+  'у': 'e',
+  'к': 'r',
+  'е': 't',
+  'н': 'y',
+  'г': 'u',
+  'ш': 'i',
+  'щ': 'o',
+  'з': 'p',
+  'х': '[',
+  'ъ': ']',
+  'ф': 'a',
+  'ы': 's',
+  'в': 'd',
+  'а': 'f',
+  'п': 'g',
+  'р': 'h',
+  'о': 'j',
+  'л': 'k',
+  'д': 'l',
+  'ж': ';',
+  'э': "'",
+  'я': 'z',
+  'ч': 'x',
+  'с': 'c',
+  'м': 'v',
+  'и': 'b',
+  'т': 'n',
+  'ь': 'm',
+  'б': ',',
+  'ю': '.',
+  'Й': 'Q',
+  'Ц': 'W',
+  'У': 'E',
+  'К': 'R',
+  'Е': 'T',
+  'Н': 'Y',
+  'Г': 'U',
+  'Ш': 'I',
+  'Щ': 'O',
+  'З': 'P',
+  'Х': '{',
+  'Ъ': '}',
+  'Ф': 'A',
+  'Ы': 'S',
+  'В': 'D',
+  'А': 'F',
+  'П': 'G',
+  'Р': 'H',
+  'О': 'J',
+  'Л': 'K',
+  'Д': 'L',
+  'Ж': ':',
+  'Э': '"',
+  'Я': 'Z',
+  'Ч': 'X',
+  'С': 'C',
+  'М': 'V',
+  'И': 'B',
+  'Т': 'N',
+  'Ь': 'M',
+  'Б': '<',
+  'Ю': '>',
 };
 
 String fixScannerLayout(String input) =>
@@ -54,7 +109,8 @@ String durationFrom(dynamic value) {
 // SnackBar's edge-to-edge bar -- the default `behavior: fixed` (no shape, no
 // margin) stretches the full width of the window, which on a desktop-sized
 // screen reads as a jarring bar rather than a toast.
-void _toast(BuildContext context, {required Color color, required IconData icon, required String message}) {
+void _toast(BuildContext context,
+    {required Color color, required IconData icon, required String message}) {
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
     ..showSnackBar(
@@ -82,11 +138,15 @@ void showError(BuildContext context, Object error) {
       : raw.contains('NO_OPEN_SHIFT')
           ? 'Avval smenani oching.'
           : raw;
-  _toast(context, color: VColors.red, icon: Icons.error_outline_rounded, message: message);
+  _toast(context,
+      color: VColors.red, icon: Icons.error_outline_rounded, message: message);
 }
 
 void showDone(BuildContext context, String message) {
-  _toast(context, color: VColors.greenDark, icon: Icons.check_circle_rounded, message: message);
+  _toast(context,
+      color: VColors.greenDark,
+      icon: Icons.check_circle_rounded,
+      message: message);
 }
 
 Map<String, dynamic> rowMap(dynamic value) =>

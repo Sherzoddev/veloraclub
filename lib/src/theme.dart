@@ -112,6 +112,11 @@ abstract final class VColors {
   static Color get blue => _palette.blue;
 }
 
+/// Styles that don't inherit the Roboto text theme -- button labels, chips --
+/// go through this, or they'd render in the platform font instead (Segoe UI
+/// on Windows) and measure differently from the rest of the app.
+TextStyle appFont(TextStyle style) => GoogleFonts.roboto(textStyle: style);
+
 ThemeData buildTheme() {
   final dark = ThemeController.instance.isDark;
   final text = GoogleFonts.robotoTextTheme(
@@ -175,7 +180,8 @@ ThemeData buildTheme() {
         minimumSize: const Size(0, 46),
         padding: const EdgeInsets.symmetric(horizontal: 22),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        textStyle:
+            appFont(const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -185,7 +191,8 @@ ThemeData buildTheme() {
         padding: const EdgeInsets.symmetric(horizontal: 20),
         side: BorderSide(color: dark ? VColors.line : const Color(0xFFC9D3E1)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+        textStyle:
+            appFont(const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
       ),
     ),
     dialogTheme: DialogThemeData(
@@ -204,7 +211,8 @@ ThemeData buildTheme() {
       selectedColor: VColors.green,
       backgroundColor: VColors.surface,
       side: BorderSide(color: VColors.line),
-      labelStyle: TextStyle(fontWeight: FontWeight.w600, color: VColors.ink),
+      labelStyle:
+          appFont(TextStyle(fontWeight: FontWeight.w600, color: VColors.ink)),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     ),
   );

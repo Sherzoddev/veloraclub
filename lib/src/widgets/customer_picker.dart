@@ -65,9 +65,8 @@ Future<String?> pickCustomer(
                     // Legacy card format kept for already-issued QR cards.
                     if (scanned.toUpperCase().startsWith('CUST:')) {
                       final id = scanned.substring(5).trim();
-                      final byId = customers
-                          .where((c) => '${c['id']}' == id)
-                          .toList();
+                      final byId =
+                          customers.where((c) => '${c['id']}' == id).toList();
                       if (byId.isNotEmpty) {
                         Navigator.pop(context, '${byId.first['id']}');
                       }

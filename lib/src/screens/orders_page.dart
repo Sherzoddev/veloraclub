@@ -22,7 +22,7 @@ class _OrdersPageState extends State<OrdersPage> {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.all(30),
+        padding: pagePadding(context),
         child: Column(
           children: [
             PageHeader(
@@ -90,9 +90,8 @@ class _OrdersPageState extends State<OrdersPage> {
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 13),
-                              child: Row(children: [
-                                Expanded(
-                                  child: Column(
+                              child: AdaptiveRow(
+                                  content: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
@@ -116,21 +115,18 @@ class _OrdersPageState extends State<OrdersPage> {
                                               style: TextStyle(
                                                   color: VColors.red,
                                                   fontSize: 12,
-                                                  fontWeight:
-                                                      FontWeight.w700)),
+                                                  fontWeight: FontWeight.w700)),
                                         ),
                                     ],
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(money(row['total_amount']),
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 16)),
-                                const SizedBox(width: 10),
-                                Icon(Icons.print_outlined,
-                                    size: 18, color: VColors.subtle),
-                              ]),
+                                  actions: [
+                                    Text(money(row['total_amount']),
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 16)),
+                                    Icon(Icons.print_outlined,
+                                        size: 18, color: VColors.subtle),
+                                  ]),
                             ),
                           ),
                         ),
@@ -189,8 +185,7 @@ class _OrdersPageState extends State<OrdersPage> {
         ? '${session['resources']['name']}'
         : null;
     final opener = order['opener'];
-    final cashierName =
-        opener is Map ? '${opener['full_name'] ?? ''}' : '';
+    final cashierName = opener is Map ? '${opener['full_name'] ?? ''}' : '';
     final paymentMethodName = payments.isEmpty
         ? ''
         : payments
@@ -199,7 +194,8 @@ class _OrdersPageState extends State<OrdersPage> {
             .join(', ');
     final lines = [
       for (final r in rounds)
-        ReceiptLine('${resourceName ?? tr('Seans')} · ${tr('raund')} ${r['round_number']}',
+        ReceiptLine(
+            '${resourceName ?? tr('Seans')} · ${tr('raund')} ${r['round_number']}',
             (r['amount'] as num?)?.toInt() ?? 0,
             note: r['note'] as String?,
             kind: 'time',
@@ -223,9 +219,8 @@ class _OrdersPageState extends State<OrdersPage> {
     final sessionStartedAt = rounds.isEmpty
         ? null
         : DateTime.tryParse('${rounds.first['started_at']}');
-    final sessionEndedAt = rounds.isEmpty
-        ? null
-        : DateTime.tryParse('${rounds.last['ended_at']}');
+    final sessionEndedAt =
+        rounds.isEmpty ? null : DateTime.tryParse('${rounds.last['ended_at']}');
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -290,6 +285,7 @@ class _OrdersPageState extends State<OrdersPage> {
     final confirmed = await showDialog<bool>(
       context: dialogContext,
       builder: (c) => AlertDialog(
+        scrollable: true,
         title: Text(tr('Buyurtmani bekor qilish')),
         content: Text(tr(
             'Buyurtma bekor qilinadi, tovarlar ombor qoldig\'iga qaytariladi. Bu amalni qaytarib bo\'lmaydi.')),
@@ -358,8 +354,8 @@ class _OrdersPageState extends State<OrdersPage> {
         paymentMethodName: paymentMethodName,
         sessionStartedAt: sessionStartedAt,
         sessionEndedAt: sessionEndedAt,
-        printCost: widget.controller.context!.club['receipt_print_cost'] ==
-            true,
+        printCost:
+            widget.controller.context!.club['receipt_print_cost'] == true,
       );
       await PrinterService.print(config, bytes);
       if (mounted) showDone(context, tr('Chek chop etildi'));

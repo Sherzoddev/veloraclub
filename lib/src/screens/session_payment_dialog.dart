@@ -127,8 +127,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               // Default to cash — the common case — so the cashier doesn't
               // have to open the dropdown for every single sale.
               if (methodId == null && data.methods.isNotEmpty) {
-                final cash = data.methods.firstWhere(
-                    (m) => m['key'] == 'cash',
+                final cash = data.methods.firstWhere((m) => m['key'] == 'cash',
                     orElse: () => data.methods.first);
                 methodId = '${cash['id']}';
               }
@@ -165,7 +164,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                       Expanded(
                         child: Text(customerName ?? 'Mijozsiz',
                             style: TextStyle(
-                                color: VColors.muted, fontWeight: FontWeight.w700)),
+                                color: VColors.muted,
+                                fontWeight: FontWeight.w700)),
                       ),
                       if (order['customer_id'] != null)
                         IconButton(
@@ -192,7 +192,9 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                           final phone = '${c['phone'] ?? ''}';
                           if (name.contains(q)) return true;
                           if (digits.isNotEmpty &&
-                              phone.replaceAll(RegExp(r'\D'), '').contains(digits)) {
+                              phone
+                                  .replaceAll(RegExp(r'\D'), '')
+                                  .contains(digits)) {
                             return true;
                           }
                           return false;
@@ -200,7 +202,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                       },
                       onSelected: (c) => _selectCustomer('${c['id']}'),
                       fieldViewBuilder:
-                          (context, textCtrl, focusNode, onSubmitted) => TextField(
+                          (context, textCtrl, focusNode, onSubmitted) =>
+                              TextField(
                         controller: textCtrl,
                         focusNode: focusNode,
                         style: const TextStyle(fontSize: 14),
@@ -208,8 +211,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                           isDense: true,
                           prefixIcon:
                               const Icon(Icons.search_rounded, size: 18),
-                          hintText:
-                              'Ism, telefon — yoki kartani skaner qiling',
+                          hintText: 'Ism, telefon — yoki kartani skaner qiling',
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 12),
                         ),
@@ -219,8 +221,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                             final token =
                                 scanned.substring(5).trim().toLowerCase();
                             final byToken = data.customers.where((c) {
-                              return '${c['card_token'] ?? ''}'
-                                      .toLowerCase() ==
+                              return '${c['card_token'] ?? ''}'.toLowerCase() ==
                                   token;
                             }).toList();
                             if (byToken.isNotEmpty) {
@@ -254,14 +255,15 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                           }
                         },
                       ),
-                      optionsViewBuilder: (context, onSelected, options) => Align(
+                      optionsViewBuilder: (context, onSelected, options) =>
+                          Align(
                         alignment: Alignment.topLeft,
                         child: Material(
                           elevation: 4,
                           borderRadius: BorderRadius.circular(12),
                           child: ConstrainedBox(
-                            constraints:
-                                const BoxConstraints(maxHeight: 220, maxWidth: 472),
+                            constraints: const BoxConstraints(
+                                maxHeight: 220, maxWidth: 472),
                             child: ListView(
                               shrinkWrap: true,
                               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -273,7 +275,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                                           backgroundColor: VColors.greenSoft,
                                           child: Icon(
                                               Icons.person_outline_rounded,
-                                              size: 15, color: VColors.green),
+                                              size: 15,
+                                              color: VColors.green),
                                         ),
                                         title: Text(
                                             '${c['full_name'] ?? 'Mijoz'}'),
@@ -357,6 +360,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                     ]),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: methodId,
                       decoration:
                           const InputDecoration(labelText: 'To\'lov usuli'),
@@ -405,8 +409,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
         padding: const EdgeInsets.symmetric(vertical: 5),
         child: Row(children: [
           Expanded(
-              child:
-                  Text(label, style: TextStyle(color: muted ? VColors.muted : null))),
+              child: Text(label,
+                  style: TextStyle(color: muted ? VColors.muted : null))),
           Text(value,
               style: TextStyle(
                   color: muted ? VColors.muted : null,
@@ -426,6 +430,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     final discount = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: const Text('Chegirma'),
         content: SizedBox(
           width: 400,
@@ -433,7 +438,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             mainAxisSize: MainAxisSize.min,
             children: discounts
                 .map((d) => ListTile(
-                      leading: Icon(Icons.percent_rounded, color: VColors.green),
+                      leading:
+                          Icon(Icons.percent_rounded, color: VColors.green),
                       title: Text('${d['name']}'),
                       subtitle: d['applies_to'] == 'TIME'
                           ? const Text('faqat vaqtga')
@@ -477,6 +483,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     final points = await showDialog<int>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: const Text('Ballardan yechish'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -533,8 +540,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     setState(() => paying = true);
     try {
       final amount = int.tryParse(amountCtrl.text) ?? total;
-      final method = data.methods.firstWhere(
-          (m) => '${m['id']}' == methodId,
+      final method = data.methods.firstWhere((m) => '${m['id']}' == methodId,
           orElse: () => const <String, dynamic>{});
       await widget.controller.repository
           .payOrder(widget.orderId, methodId!, amount);
@@ -577,8 +583,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               startedAt: DateTime.tryParse('${r['started_at']}'),
               endedAt: DateTime.tryParse('${r['ended_at']}')),
         for (final i in items)
-          ReceiptLine('${i['description']}',
-              (i['total_price'] as num?)?.toInt() ?? 0,
+          ReceiptLine(
+              '${i['description']}', (i['total_price'] as num?)?.toInt() ?? 0,
               quantity: i['quantity'] as num?,
               cost: (i['unit_cost'] as num?) == null
                   ? null

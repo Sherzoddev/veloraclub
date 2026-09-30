@@ -142,7 +142,7 @@ function buildCalendar(y: number, mo: number, dayPrefix = "calday:", last?: { y:
 }
 
 const MENU = {
-  today: "📊 Сегодня",
+  today: "📊 Текущая смена",
   period: "🗓 Отчёт за день",
   chart: "📈 График",
   top: "🏆 Топ товаров",
@@ -327,12 +327,29 @@ async function shiftsInDay(sb: SupabaseClient, clubId: string, from: string, to:
     .order("opened_at", { ascending: true });
   const shifts = ((data ?? []) as unknown as ShiftRow[]).filter((s) =>
     !s.closed_at || new Date(s.closed_at).getTime() - new Date(s.opened_at).getTime() >= 60_000);
-  // A closed shift has its expected cash saved; an open one is counted now.
-  await Promise.all(shifts.filter((s) => !s.closed_at).map(async (s) => {
-    const { data: cash } = await sb.rpc("bot_shift_expected_cash", { p_shift_id: s.id });
-    if (cash != null) s.expected_cash = Number(cash);
-  }));
+  await Promise.all(shifts.map((s) => withLiveCash(sb, s)));
   return shifts;
+}
+
+// Shifts opened during a working day (07:00 -> 07:00), oldest first -- each
+// is reported on its own, from its opening to its close (or to now), the
+// same span the till's shift screen shows.
+async function shiftsOpenedInDay(sb: SupabaseClient, clubId: string, from: string, to: string): Promise<ShiftRow[]> {
+  const { data } = await sb.from("cash_shifts").select(SHIFT_SELECT)
+    .eq("club_id", clubId).gte("opened_at", from).lt("opened_at", to)
+    .order("opened_at", { ascending: true });
+  const shifts = ((data ?? []) as unknown as ShiftRow[]).filter((s) =>
+    !s.closed_at || new Date(s.closed_at).getTime() - new Date(s.opened_at).getTime() >= 60_000);
+  await Promise.all(shifts.map((s) => withLiveCash(sb, s)));
+  return shifts;
+}
+
+// A closed shift has its expected cash saved; an open one is counted now.
+async function withLiveCash(sb: SupabaseClient, s: ShiftRow): Promise<ShiftRow> {
+  if (s.closed_at) return s;
+  const { data: cash } = await sb.rpc("bot_shift_expected_cash", { p_shift_id: s.id });
+  if (cash != null) s.expected_cash = Number(cash);
+  return s;
 }
 
 const signedMoney = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "") + money(Math.abs(n));
@@ -348,85 +365,23 @@ function shiftCashLines(s: ShiftRow, cur: string) {
   return text;
 }
 
-function shiftLines(shifts: ShiftRow[], cfg: OwnerBotConfig) {
-  if (shifts.length === 0) return "Смена не открывалась.";
-  return shifts.map((s) => {
-    const opener = s.opener?.full_name ? ` · ${esc(s.opener.full_name)}` : "";
-    const closer = s.closer?.full_name ? ` · ${esc(s.closer.full_name)}` : "";
-    return `🟢 Открыта: <b>${shortDateTime(s.opened_at, cfg.timezone)}</b>${opener}\n` +
-      (s.closed_at
-        ? `🔴 Закрыта: <b>${shortDateTime(s.closed_at, cfg.timezone)}</b>${closer}`
-        : "⏳ Смена ещё не закрыта") +
-      shiftCashLines(s, cfg.currency_suffix);
-  }).join("\n\n");
-}
-
 async function showDayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number, y: number, mo: number, d: number) {
   const { from, to } = workDayBounds(y, mo, d, cfg.timezone);
-  const now = new Date().toISOString();
   const again = { inline_keyboard: [[{ text: "🗓 Другой день", callback_data: `calnav:${y}-${pad(mo)}` }]] };
-  if (from > now) return void send(cfg.bot_token, chatId, `${fmtDateRu(y, mo, d)} ещё не наступил.`, { reply_markup: again });
-
-  const [{ data, error }, shifts] = await Promise.all([
-    sb.rpc("bot_period_report", { p_club_id: cfg.club_id, p_from: from, p_to: to > now ? now : to }),
-    shiftsInDay(sb, cfg.club_id, from, to),
-  ]);
-  if (error) return void send(cfg.bot_token, chatId, `⚠️ Ошибка: ${error.message}`, { reply_markup: mainKeyboard });
-
-  const text =
-    `📊 <b>Отчёт за ${fmtDateRu(y, mo, d)}</b>\n\n` +
-    `${shiftLines(shifts, cfg)}\n${DIVIDER}\n\n` +
-    reportBody(data, cfg);
-
-  await send(cfg.bot_token, chatId, text, {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "📥 Скачать Excel", callback_data: `xls:${isoDate(y, mo, d)}` }],
-        [{ text: "🗓 Другой день", callback_data: `calnav:${y}-${pad(mo)}` }],
-      ],
-    },
-  });
-}
-
-// "📊 Сегодня" = the shift that is open right now, from its opening until
-// now: a shift opened yesterday and still running keeps yesterday's sales in
-// the total instead of restarting at 07:00. With the till closed it falls
-// back to the current working day. "🗓 Отчёт за день" stays 07:00 → 07:00.
-async function showTodayReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number) {
-  const { data: open } = await sb.from("cash_shifts").select(SHIFT_SELECT)
-    .eq("club_id", cfg.club_id).is("closed_at", null)
-    .order("opened_at", { ascending: false }).limit(1).maybeSingle();
-  const shift = open as unknown as ShiftRow | null;
-  if (!shift) {
-    const t = currentWorkDay(cfg.timezone);
-    return showDayReport(sb, cfg, chatId, t.y, t.mo, t.d);
+  if (from > new Date().toISOString()) {
+    return void send(cfg.bot_token, chatId, `${fmtDateRu(y, mo, d)} ещё не наступил.`, { reply_markup: again });
   }
-
-  const now = new Date().toISOString();
-  const [{ data, error }, { data: cash }] = await Promise.all([
-    sb.rpc("bot_period_report", { p_club_id: cfg.club_id, p_from: shift.opened_at, p_to: now }),
-    sb.rpc("bot_shift_expected_cash", { p_shift_id: shift.id }),
-  ]);
-  if (error) return void send(cfg.bot_token, chatId, `⚠️ Ошибка: ${error.message}`, { reply_markup: mainKeyboard });
-  if (cash != null) shift.expected_cash = Number(cash);
-
-  const text =
-    `📊 <b>Текущая смена</b>\n\n` +
-    `${shiftLines([shift], cfg)}\n⏱ Идёт: ${durationLabel(shift.opened_at, now)}\n${DIVIDER}\n\n` +
-    reportBody(data, cfg);
-
-  await send(cfg.bot_token, chatId, text, {
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "📥 Скачать Excel", callback_data: `xlsshift:${shift.id}` }],
-        [{ text: "🗓 Отчёт за день", callback_data: "shiftcal" }],
-      ],
-    },
-  });
+  const shifts = await shiftsOpenedInDay(sb, cfg.club_id, from, to);
+  if (shifts.length === 0) {
+    return void send(cfg.bot_token, chatId, `📊 <b>${fmtDateRu(y, mo, d)}</b>\n\nВ этот день смена не открывалась.`, { reply_markup: again });
+  }
+  for (const [i, shift] of shifts.entries()) {
+    await showShiftReport(sb, cfg, chatId, shift, shifts.length > 1 ? `Смена ${i + 1} из ${shifts.length} за ${fmtDateRu(y, mo, d)}` : "");
+  }
 }
 
-// Cash shifts: listed at the top of each day report. Separate per-shift
-// reports are only reached from buttons on older messages.
+// Cash shifts: every report is a shift's, from its opening to its close or
+// to now -- the numbers match the till's shift screen.
 type ShiftRow = {
   id: string;
   status: string;
@@ -464,21 +419,15 @@ function durationLabel(fromIso: string, toIso: string): string {
   return h === 0 ? `${m} мин` : m === 0 ? `${h} ч` : `${h} ч ${m} мин`;
 }
 
-function shortDateTime(iso: string, timeZone: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    timeZone, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
-  }).format(new Date(iso));
-}
-
 function shiftHeader(s: ShiftRow, timeZone: string) {
   const { from, to } = shiftBounds(s);
   const opener = s.opener?.full_name ? ` · ${esc(s.opener.full_name)}` : "";
   const closer = s.closer?.full_name ? ` · ${esc(s.closer.full_name)}` : "";
   const closedLine = s.closed_at
     ? `🔴 Закрыта: <b>${fmtDateTimeRu(s.closed_at, timeZone)}</b>${closer}`
-    : `🟢 Смена идёт · сейчас ${fmtDateTimeRu(to, timeZone)}`;
+    : `⏳ Смена идёт · сейчас ${fmtDateTimeRu(to, timeZone)}`;
   return (
-    `🕘 Открыта: <b>${fmtDateTimeRu(s.opened_at, timeZone)}</b>${opener}\n` +
+    `🟢 Открыта: <b>${fmtDateTimeRu(s.opened_at, timeZone)}</b>${opener}\n` +
     `${closedLine}\n` +
     `⏱ Длительность: ${durationLabel(from, to)}`
   );
@@ -490,9 +439,9 @@ async function showShiftReport(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: 
   if (error) return void send(cfg.bot_token, chatId, `⚠️ Ошибка: ${error.message}`, { reply_markup: mainKeyboard });
 
   const text =
-    `📊 <b>Отчёт по смене</b>\n` +
+    `📊 <b>${shift.closed_at ? "Отчёт по смене" : "Текущая смена"}</b>\n` +
     (note ? `<i>${note}</i>\n` : "") +
-    `\n${shiftHeader(shift, cfg.timezone)}\n${DIVIDER}\n\n` +
+    `\n${shiftHeader(shift, cfg.timezone)}${shiftCashLines(shift, cfg.currency_suffix)}\n${DIVIDER}\n\n` +
     reportBody(data, cfg);
 
   await send(cfg.bot_token, chatId, text, {
@@ -520,6 +469,10 @@ async function sendShiftReportExcel(sb: SupabaseClient, cfg: OwnerBotConfig, cha
     ["Открыта", opened, shift.opener?.full_name ?? ""],
     ["Закрыта", closed, shift.closer?.full_name ?? ""],
     ["Длительность", durationLabel(from, to)],
+    ["В кассе должно быть", shift.expected_cash ?? ""],
+    ...(shift.closed_at && shift.actual_cash != null
+      ? [["Сдано", shift.actual_cash], ["Разница", shift.difference ?? shift.actual_cash - (shift.expected_cash ?? 0)]]
+      : []),
     ["Сформирован", fmtDateTimeRu(new Date().toISOString(), cfg.timezone)],
     [],
     ...reportExcelRows(report, top ?? [], cfg),
@@ -879,7 +832,7 @@ Deno.serve(async (req) => {
       if (data.startsWith("shift:")) {
         const shift = await shiftById(sb, cfg.club_id, data.slice(6));
         if (!shift) await send(token, chatId, "Смена не найдена.", { reply_markup: mainKeyboard });
-        else await showShiftReport(sb, cfg, chatId, shift);
+        else await showShiftReport(sb, cfg, chatId, await withLiveCash(sb, shift));
         return new Response("ok");
       }
       // Bare "xlsshift" is the button on reports sent before shifts had ids.
@@ -888,7 +841,7 @@ Deno.serve(async (req) => {
           ? await latestShift(sb, cfg.club_id)
           : await shiftById(sb, cfg.club_id, data.slice(9));
         if (!shift) await send(token, chatId, "Смена не найдена.", { reply_markup: mainKeyboard });
-        else await sendShiftReportExcel(sb, cfg, chatId, shift);
+        else await sendShiftReportExcel(sb, cfg, chatId, await withLiveCash(sb, shift));
         return new Response("ok");
       }
       if (data.startsWith("ratings:")) {
@@ -1045,8 +998,12 @@ Deno.serve(async (req) => {
 
     switch (text) {
       case MENU.today:
-        await showTodayReport(sb, cfg, chatId);
+      case "📊 Сегодня": { // label on keyboards sent before the rename
+        const shift = await latestShift(sb, cfg.club_id);
+        if (!shift) await send(token, chatId, "Смен ещё не было.", { reply_markup: mainKeyboard });
+        else await showShiftReport(sb, cfg, chatId, await withLiveCash(sb, shift));
         return new Response("ok");
+      }
       case MENU.period:
       case "🕗 За период": { // label on keyboards sent before the rename
         const t = currentWorkDay(cfg.timezone);

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 
+import '../i18n.dart';
 import '../services/native_file_picker.dart';
 import '../state/club_controller.dart';
 import '../theme.dart';
@@ -23,12 +24,16 @@ class _ProductsPageState extends State<ProductsPage> {
   String q = '';
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.all(30),
+      padding: pagePadding(context),
       child: Column(children: [
         PageHeader(
             title: 'Tovarlar',
             subtitle: 'Mahsulot katalogi va ombor qoldig\'i',
             actions: [
+              OutlinedButton.icon(
+                  onPressed: () => _categories(context),
+                  icon: const Icon(Icons.category_outlined),
+                  label: Text(tr('Toifalar'))),
               OutlinedButton.icon(
                   onPressed: () => _history(context),
                   icon: const Icon(Icons.receipt_long_outlined),
@@ -56,8 +61,7 @@ class _ProductsPageState extends State<ProductsPage> {
                 ]),
                 builder: (context, values) {
                   final rows = (values[0] as List).cast<Map<String, dynamic>>();
-                  final cats =
-                      (values[1] as List).cast<Map<String, dynamic>>();
+                  final cats = (values[1] as List).cast<Map<String, dynamic>>();
                   final f = rows
                       .where((r) => '${r['name']}'.toLowerCase().contains(q))
                       .toList();
@@ -82,7 +86,7 @@ class _ProductsPageState extends State<ProductsPage> {
                           padding: const EdgeInsets.only(top: 6, bottom: 8),
                           child: Text(
                               catId.isEmpty
-                                  ? 'Toifasiz'
+                                  ? tr('Toifasiz')
                                   : '${cats.firstWhere((c) => '${c['id']}' == catId)['name']}',
                               style: const TextStyle(
                                   fontWeight: FontWeight.w900, fontSize: 16)),
@@ -129,18 +133,17 @@ class _ProductsPageState extends State<ProductsPage> {
                 )
               : ListView.separated(
                   itemCount: rows.length,
-                  separatorBuilder: (_, __) =>
-                      Divider(height: 22, color: VColors.subtle.withValues(alpha: 0.2)),
+                  separatorBuilder: (_, __) => Divider(
+                      height: 22, color: VColors.subtle.withValues(alpha: 0.2)),
                   itemBuilder: (context, i) {
                     final m = rows[i];
                     final product = m['products'];
                     final name =
                         product is Map ? '${product['name']}' : 'Tovar';
-                    final delta =
-                        (num.tryParse('${m['quantity_delta']}') ?? 0);
+                    final delta = (num.tryParse('${m['quantity_delta']}') ?? 0);
                     final positive = delta > 0;
-                    final createdAt = DateTime.tryParse('${m['created_at']}')
-                        ?.toLocal();
+                    final createdAt =
+                        DateTime.tryParse('${m['created_at']}')?.toLocal();
                     final note = m['note'];
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,8 +175,7 @@ class _ProductsPageState extends State<ProductsPage> {
                                         ? VColors.greenDark
                                         : VColors.red)),
                             const SizedBox(height: 3),
-                            Text(
-                                createdAt == null ? '' : df.format(createdAt),
+                            Text(createdAt == null ? '' : df.format(createdAt),
                                 style: TextStyle(
                                     color: VColors.subtle, fontSize: 12)),
                           ],
@@ -201,16 +203,15 @@ class _ProductsPageState extends State<ProductsPage> {
     final ok = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-                title: Text(
-                    '${p['name']} · ${positive ? 'Kirim' : 'Chiqim'}'),
+                scrollable: true,
+                title: Text('${p['name']} · ${positive ? 'Kirim' : 'Chiqim'}'),
                 content: TextField(
                     controller: c,
                     autofocus: true,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                        labelText: positive
-                            ? 'Miqdor (kirim)'
-                            : 'Miqdor (chiqim)')),
+                        labelText:
+                            positive ? 'Miqdor (kirim)' : 'Miqdor (chiqim)')),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(context, false),
@@ -244,10 +245,291 @@ class _ProductsPageState extends State<ProductsPage> {
     }
   }
 
+  /// Category manager: add, rename, reorder and remove product categories.
+  /// Removing only archives the category -- its products stay and show up
+  /// under "Toifasiz" until they are moved.
+  Future<void> _categories(BuildContext context) async {
+    final repo = widget.controller.repository;
+    final clubId = widget.controller.context!.clubId;
+    List<Map<String, dynamic>> cats;
+    try {
+      cats = await repo.productCategories(clubId);
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+      return;
+    }
+    if (!context.mounted) return;
+    var changed = false;
+    await showDialog<void>(
+        context: context,
+        builder: (context) => StatefulBuilder(builder: (context, setState) {
+              Future<void> reload() async {
+                final fresh = await repo.productCategories(clubId);
+                changed = true;
+                setState(() => cats = fresh);
+              }
+
+              Future<void> move(int i, int delta) async {
+                final j = i + delta;
+                if (j < 0 || j >= cats.length) return;
+                final list = [...cats];
+                final item = list.removeAt(i);
+                list.insert(j, item);
+                setState(() => cats = list);
+                try {
+                  for (final (k, c) in list.indexed) {
+                    if (c['sort_order'] != k) {
+                      await repo.client
+                          .from('product_categories')
+                          .update({'sort_order': k}).eq('id', c['id']);
+                    }
+                  }
+                  await reload();
+                } catch (e) {
+                  if (context.mounted) showError(context, e);
+                }
+              }
+
+              return AlertDialog(
+                  title: Text(tr('Toifalar')),
+                  content: SizedBox(
+                      width: 460,
+                      child: cats.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              child: Text(tr('Hali toifa yo\'q'),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: VColors.muted)))
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              itemCount: cats.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1),
+                              itemBuilder: (_, i) {
+                                final c = cats[i];
+                                return Row(children: [
+                                  Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                          color: _catColor(c['color']) ??
+                                              VColors.line,
+                                          shape: BoxShape.circle)),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                      child: Text('${c['name']}',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700))),
+                                  IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      tooltip: tr('Yuqoriga'),
+                                      onPressed:
+                                          i == 0 ? null : () => move(i, -1),
+                                      icon: const Icon(
+                                          Icons.arrow_upward_rounded,
+                                          size: 20)),
+                                  IconButton(
+                                      visualDensity: VisualDensity.compact,
+                                      tooltip: tr('Pastga'),
+                                      onPressed: i == cats.length - 1
+                                          ? null
+                                          : () => move(i, 1),
+                                      icon: const Icon(
+                                          Icons.arrow_downward_rounded,
+                                          size: 20)),
+                                  PopupMenuButton<String>(
+                                      onSelected: (v) async {
+                                        if (v == 'edit') {
+                                          final r =
+                                              await _editCategory(context, c);
+                                          if (r != null) await reload();
+                                        } else if (await _archiveCategory(
+                                            context, c)) {
+                                          await reload();
+                                        }
+                                      },
+                                      itemBuilder: (_) => [
+                                            PopupMenuItem(
+                                                value: 'edit',
+                                                child: Text(tr('Tahrirlash'))),
+                                            PopupMenuItem(
+                                                value: 'delete',
+                                                child: Text(tr('O\'chirish'),
+                                                    style: TextStyle(
+                                                        color: VColors.red))),
+                                          ]),
+                                ]);
+                              })),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(tr('Yopish'))),
+                    FilledButton.icon(
+                        onPressed: () async {
+                          final r = await _editCategory(context, null,
+                              sortOrder: cats.length);
+                          if (r != null) await reload();
+                        },
+                        icon: const Icon(Icons.add_rounded),
+                        label: Text(tr('Toifa qo\'shish'))),
+                  ]);
+            }));
+    if (changed) widget.controller.refresh();
+  }
+
+  static const _catPalette = [
+    '#16A34A',
+    '#2563EB',
+    '#DC2626',
+    '#F59E0B',
+    '#9333EA',
+    '#0891B2',
+    '#DB2777',
+    '#65A30D',
+    '#EA580C',
+    '#475569',
+  ];
+
+  static Color? _catColor(dynamic hex) {
+    final v = int.tryParse('$hex'.replaceFirst('#', 'FF'), radix: 16);
+    return hex == null || v == null ? null : Color(v);
+  }
+
+  /// Create (c == null) or rename/recolor a category; returns the saved row.
+  Future<Map<String, dynamic>?> _editCategory(
+      BuildContext context, Map<String, dynamic>? c,
+      {int sortOrder = 0}) async {
+    final name = TextEditingController(text: '${c?['name'] ?? ''}');
+    String? color = c?['color'] as String?;
+    final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+            builder: (context, setState) => AlertDialog(
+                    scrollable: true,
+                    title: Text(
+                        tr(c == null ? 'Yangi toifa' : 'Toifani tahrirlash')),
+                    content: SizedBox(
+                        width: 400,
+                        child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              TextField(
+                                  controller: name,
+                                  autofocus: true,
+                                  textCapitalization:
+                                      TextCapitalization.sentences,
+                                  decoration:
+                                      InputDecoration(labelText: tr('Nomi'))),
+                              const SizedBox(height: 16),
+                              Text(tr('Rang'),
+                                  style: TextStyle(
+                                      color: VColors.subtle, fontSize: 12)),
+                              const SizedBox(height: 8),
+                              Wrap(spacing: 10, runSpacing: 10, children: [
+                                for (final hex in [null, ..._catPalette])
+                                  InkWell(
+                                    customBorder: const CircleBorder(),
+                                    onTap: () => setState(() => color = hex),
+                                    child: Container(
+                                      width: 34,
+                                      height: 34,
+                                      decoration: BoxDecoration(
+                                          color: _catColor(hex) ??
+                                              Colors.transparent,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                              color: color == hex
+                                                  ? VColors.ink
+                                                  : VColors.line,
+                                              width: color == hex ? 3 : 1)),
+                                      child: hex == null
+                                          ? Icon(Icons.block_rounded,
+                                              size: 18, color: VColors.subtle)
+                                          : null,
+                                    ),
+                                  ),
+                              ]),
+                            ])),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: Text(tr('Bekor qilish'))),
+                      FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: Text(tr('Saqlash')))
+                    ])));
+    final title = name.text.trim();
+    if (ok != true || title.isEmpty) return null;
+    try {
+      final table =
+          widget.controller.repository.client.from('product_categories');
+      final row = c == null
+          ? await table
+              .insert({
+                'club_id': widget.controller.context!.clubId,
+                'name': title,
+                'color': color,
+                'sort_order': sortOrder,
+              })
+              .select()
+              .single()
+          : await table
+              .update({'name': title, 'color': color})
+              .eq('id', c['id'])
+              .select()
+              .single();
+      return Map<String, dynamic>.from(row);
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+      return null;
+    }
+  }
+
+  Future<bool> _archiveCategory(
+      BuildContext context, Map<String, dynamic> c) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        scrollable: true,
+        title: Text(tr('Toifani o\'chirish')),
+        content: Text(tr(
+            'Toifadagi tovarlar o\'chmaydi — ular «Toifasiz» bo\'limiga o\'tadi.')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: Text(tr('Bekor qilish'))),
+          FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: VColors.red),
+              onPressed: () => Navigator.pop(d, true),
+              child: Text(tr('O\'chirish'))),
+        ],
+      ),
+    );
+    if (confirmed != true) return false;
+    try {
+      final client = widget.controller.repository.client;
+      await client
+          .from('products')
+          .update({'category_id': null}).eq('category_id', c['id']);
+      await client.from('product_categories').update({
+        'active': false,
+        'archived_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', c['id']);
+      return true;
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+      return false;
+    }
+  }
+
   Future<void> _delete(BuildContext context, Map<String, dynamic> p) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
+        scrollable: true,
         title: const Text('O\'chirish'),
         content: Text('«${p['name']}» sotuvdan yo\'qoladi.'),
         actions: [
@@ -291,6 +573,7 @@ class _ProductsPageState extends State<ProductsPage> {
         context: context,
         builder: (context) => StatefulBuilder(
             builder: (context, setState) => AlertDialog(
+                    scrollable: true,
                     title: Text(
                         p == null ? 'Tovar qo\'shish' : 'Tovarni tahrirlash'),
                     content: SizedBox(
@@ -349,102 +632,83 @@ class _ProductsPageState extends State<ProductsPage> {
                                       color: VColors.subtle)),
                             ),
                           Row(children: [
-                                      OutlinedButton.icon(
-                                        onPressed: uploadingImage
-                                            ? null
-                                            : () async {
-                                                try {
-                                                  final pickedPath =
-                                                      pickFileNative(
-                                                    title: 'Rasm tanlash',
-                                                    extensions: [
-                                                      'png',
-                                                      'jpg',
-                                                      'jpeg'
-                                                    ],
-                                                  );
-                                                  if (pickedPath == null) {
-                                                    return;
-                                                  }
-                                                  final rawBytes =
-                                                      await File(pickedPath)
-                                                          .readAsBytes();
-                                                  if (!context.mounted) {
-                                                    return;
-                                                  }
-                                                  // A fixed 3:2 crop before upload, not the raw
-                                                  // file — different source photos otherwise
-                                                  // made the sale grid look inconsistent (some
-                                                  // filled the card, others floated tiny with
-                                                  // empty space around them).
-                                                  final cropped =
-                                                      await showDialog<Uint8List>(
-                                                    context: context,
-                                                    builder: (_) =>
-                                                        ImageCropperDialog(
-                                                            bytes: rawBytes),
-                                                  );
-                                                  if (cropped == null) return;
-                                                  setState(() =>
-                                                      uploadingImage = true);
-                                                  final bytes = cropped;
-                                                  final clubId = widget
-                                                      .controller
-                                                      .context!
-                                                      .clubId;
-                                                  const ext = 'png';
-                                                  // A fresh, unique filename every upload (not
-                                                  // just for new products) so the returned URL
-                                                  // always differs from the previous one --
-                                                  // reusing the same path let Image.network (and
-                                                  // any other cached viewer) keep showing the old
-                                                  // bytes after a replacement upload.
-                                                  final fileName =
-                                                      '${p?['id'] ?? 'new'}-${DateTime.now().millisecondsSinceEpoch}.$ext';
-                                                  final path =
-                                                      '$clubId/products/$fileName';
-                                                  final storage = widget
-                                                      .controller
-                                                      .repository
-                                                      .client
-                                                      .storage
-                                                      .from('club-assets');
-                                                  await storage.uploadBinary(
-                                                      path, bytes,
-                                                      fileOptions:
-                                                          FileOptions(
-                                                              contentType:
-                                                                  'image/png',
-                                                              upsert: true));
-                                                  final url = storage
-                                                      .getPublicUrl(path);
-                                                  setState(() {
-                                                    imageUrl.text = url;
-                                                  });
-                                                } catch (e) {
-                                                  if (context.mounted) {
-                                                    showError(context, e);
-                                                  }
-                                                } finally {
-                                                  setState(() =>
-                                                      uploadingImage = false);
-                                                }
-                                              },
-                                        icon: const Icon(Icons.upload_rounded,
-                                            size: 16),
-                                        label: const Text('Rasm yuklash'),
-                                        style: OutlinedButton.styleFrom(
-                                          minimumSize: const Size(0, 34),
-                                          textStyle:
-                                              const TextStyle(fontSize: 13),
-                                        ),
-                                      ),
-                                    ]),
+                            OutlinedButton.icon(
+                              onPressed: uploadingImage
+                                  ? null
+                                  : () async {
+                                      try {
+                                        final pickedPath = await pickImageFile(
+                                          title: 'Rasm tanlash',
+                                          extensions: ['png', 'jpg', 'jpeg'],
+                                        );
+                                        if (pickedPath == null) {
+                                          return;
+                                        }
+                                        final rawBytes = await File(pickedPath)
+                                            .readAsBytes();
+                                        if (!context.mounted) {
+                                          return;
+                                        }
+                                        // A fixed 3:2 crop before upload, not the raw
+                                        // file — different source photos otherwise
+                                        // made the sale grid look inconsistent (some
+                                        // filled the card, others floated tiny with
+                                        // empty space around them).
+                                        final cropped =
+                                            await showDialog<Uint8List>(
+                                          context: context,
+                                          builder: (_) => ImageCropperDialog(
+                                              bytes: rawBytes),
+                                        );
+                                        if (cropped == null) return;
+                                        setState(() => uploadingImage = true);
+                                        final bytes = cropped;
+                                        final clubId =
+                                            widget.controller.context!.clubId;
+                                        const ext = 'png';
+                                        // A fresh, unique filename every upload (not
+                                        // just for new products) so the returned URL
+                                        // always differs from the previous one --
+                                        // reusing the same path let Image.network (and
+                                        // any other cached viewer) keep showing the old
+                                        // bytes after a replacement upload.
+                                        final fileName =
+                                            '${p?['id'] ?? 'new'}-${DateTime.now().millisecondsSinceEpoch}.$ext';
+                                        final path =
+                                            '$clubId/products/$fileName';
+                                        final storage = widget.controller
+                                            .repository.client.storage
+                                            .from('club-assets');
+                                        await storage.uploadBinary(path, bytes,
+                                            fileOptions: FileOptions(
+                                                contentType: 'image/png',
+                                                upsert: true));
+                                        final url = storage.getPublicUrl(path);
+                                        setState(() {
+                                          imageUrl.text = url;
+                                        });
+                                      } catch (e) {
+                                        if (context.mounted) {
+                                          showError(context, e);
+                                        }
+                                      } finally {
+                                        setState(() => uploadingImage = false);
+                                      }
+                                    },
+                              icon: const Icon(Icons.upload_rounded, size: 16),
+                              label: const Text('Rasm yuklash'),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(0, 34),
+                                textStyle:
+                                    appFont(const TextStyle(fontSize: 13)),
+                              ),
+                            ),
+                          ]),
                           const SizedBox(height: 6),
                           Text(
                               'Fayl tanlangandan keyin rasmni kesib, kerakli qismini yaqinlashtirish mumkin.',
-                              style:
-                                  TextStyle(color: VColors.subtle, fontSize: 12)),
+                              style: TextStyle(
+                                  color: VColors.subtle, fontSize: 12)),
                           if (imageUrl.text.trim().isNotEmpty)
                             Align(
                               alignment: Alignment.centerLeft,
@@ -463,23 +727,30 @@ class _ProductsPageState extends State<ProductsPage> {
                               ),
                             ),
                           const SizedBox(height: 14),
-                          Row(children: [
-                            Expanded(
-                              child: TextField(
-                                  controller: price,
-                                  keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                      labelText: 'Sotuv narxi')),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: TextField(
-                                  controller: purchase,
-                                  keyboardType: TextInputType.number,
-                                  decoration: const InputDecoration(
-                                      labelText: 'Tannarx')),
-                            ),
-                          ]),
+                          Builder(builder: (context) {
+                            final priceField = TextField(
+                                controller: price,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                    labelText: 'Sotuv narxi'));
+                            final costField = TextField(
+                                controller: purchase,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                    labelText: 'Tannarx'));
+                            if (isCompactWidth(context)) {
+                              return Column(children: [
+                                priceField,
+                                const SizedBox(height: 14),
+                                costField,
+                              ]);
+                            }
+                            return Row(children: [
+                              Expanded(child: priceField),
+                              const SizedBox(width: 10),
+                              Expanded(child: costField),
+                            ]);
+                          }),
                           const SizedBox(height: 14),
                           Align(
                             alignment: Alignment.centerLeft,
@@ -488,22 +759,30 @@ class _ProductsPageState extends State<ProductsPage> {
                                     color: VColors.subtle, fontSize: 12)),
                           ),
                           const SizedBox(height: 6),
-                          SizedBox(
-                            height: 38,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: cats.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(width: 8),
-                              itemBuilder: (_, i) {
-                                final c = cats[i];
-                                return ChoiceChip(
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Wrap(spacing: 8, runSpacing: 8, children: [
+                              for (final c in cats)
+                                ChoiceChip(
                                     label: Text('${c['name']}'),
                                     selected: category == '${c['id']}',
                                     onSelected: (_) => setState(
-                                        () => category = '${c['id']}'));
-                              },
-                            ),
+                                        () => category = '${c['id']}')),
+                              ActionChip(
+                                  avatar:
+                                      const Icon(Icons.add_rounded, size: 18),
+                                  label: Text(tr('Toifa qo\'shish')),
+                                  onPressed: () async {
+                                    final created = await _editCategory(
+                                        context, null,
+                                        sortOrder: cats.length);
+                                    if (created == null) return;
+                                    setState(() {
+                                      cats.add(created);
+                                      category = '${created['id']}';
+                                    });
+                                  }),
+                            ]),
                           ),
                           const SizedBox(height: 10),
                           TextField(
@@ -602,9 +881,11 @@ class _ProductListItem extends StatelessWidget {
             top: BorderSide(color: VColors.line),
             bottom: BorderSide(color: VColors.line),
             left: BorderSide(
-                color: catColor ?? VColors.line, width: catColor != null ? 4 : 1),
+                color: catColor ?? VColors.line,
+                width: catColor != null ? 4 : 1),
             right: BorderSide(
-                color: catColor ?? VColors.line, width: catColor != null ? 4 : 1),
+                color: catColor ?? VColors.line,
+                width: catColor != null ? 4 : 1),
           ),
         ),
         child: Column(
@@ -630,16 +911,19 @@ class _ProductListItem extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(active ? '${p['name']}' : '${p['name']} (yashirilgan)',
+                      Text(
+                          active
+                              ? '${p['name']}'
+                              : '${p['name']} (yashirilgan)',
                           style: const TextStyle(
                               fontWeight: FontWeight.w700, fontSize: 15)),
                       const SizedBox(height: 3),
                       Text(
                           'Tannarx: ${money(purchasePrice)} · Marja: ${money(margin)}',
-                          style:
-                              TextStyle(color: VColors.muted, fontSize: 13)),
+                          style: TextStyle(color: VColors.muted, fontSize: 13)),
                       const SizedBox(height: 3),
-                      Text('Qoldiq: ${stock == stock.roundToDouble() ? stock.toInt() : stock} $unit',
+                      Text(
+                          'Qoldiq: ${stock == stock.roundToDouble() ? stock.toInt() : stock} $unit',
                           style: TextStyle(
                               color: stock <= 0 ? VColors.red : VColors.muted,
                               fontSize: 13)),
@@ -654,8 +938,7 @@ class _ProductListItem extends StatelessWidget {
                         style: const TextStyle(fontWeight: FontWeight.w800)),
                     if (unit == 'kg')
                       Text('/kg',
-                          style:
-                              TextStyle(color: VColors.muted, fontSize: 12)),
+                          style: TextStyle(color: VColors.muted, fontSize: 12)),
                   ],
                 ),
               ],
@@ -664,15 +947,18 @@ class _ProductListItem extends StatelessWidget {
             Wrap(spacing: 8, runSpacing: 8, children: [
               OutlinedButton(
                   onPressed: onArrival,
-                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32)),
+                  style:
+                      OutlinedButton.styleFrom(minimumSize: const Size(0, 32)),
                   child: const Text('Kirim')),
               OutlinedButton(
                   onPressed: onWriteOff,
-                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32)),
+                  style:
+                      OutlinedButton.styleFrom(minimumSize: const Size(0, 32)),
                   child: const Text('Chiqim')),
               OutlinedButton(
                   onPressed: onEdit,
-                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 32)),
+                  style:
+                      OutlinedButton.styleFrom(minimumSize: const Size(0, 32)),
                   child: const Text('O\'zgartirish')),
               FilledButton.icon(
                   onPressed: onDelete,

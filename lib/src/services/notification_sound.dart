@@ -2,7 +2,8 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart'
+    show HapticFeedback, SystemSound, SystemSoundType, rootBundle;
 import 'package:win32/win32.dart';
 
 /// Plays a short notification chime for new low-stock/pending alerts.
@@ -14,6 +15,13 @@ import 'package:win32/win32.dart';
 /// "System Sounds" volume -- noticeably louder, and an actual chime rather
 /// than a beep.
 Future<void> playNotificationSound() async {
+  // PlaySoundW is Windows-only; elsewhere (Android) the system alert plus a
+  // vibration is what a phone user expects anyway.
+  if (!Platform.isWindows) {
+    await SystemSound.play(SystemSoundType.alert);
+    await HapticFeedback.vibrate();
+    return;
+  }
   final path = await _soundFilePath();
   if (path == null) return;
   final pathPtr = path.toNativeUtf16();

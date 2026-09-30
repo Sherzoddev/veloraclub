@@ -4,6 +4,19 @@ import '../i18n.dart';
 import '../theme.dart';
 import '../utils.dart';
 
+/// Below this width a screen switches to its phone layout: one column,
+/// side panels become sheets, tables become cards.
+const kCompactWidth = 600.0;
+
+bool isCompactWidth(BuildContext context) =>
+    MediaQuery.sizeOf(context).width < kCompactWidth;
+
+/// Outer padding of a page -- tighter on a phone, where every pixel of width
+/// goes to content.
+EdgeInsets pagePadding(BuildContext context) => isCompactWidth(context)
+    ? const EdgeInsets.fromLTRB(14, 14, 14, 12)
+    : const EdgeInsets.fromLTRB(24, 20, 24, 20);
+
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
@@ -18,28 +31,48 @@ class PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.headlineMedium),
-              if (subtitle != null) ...[
-                const SizedBox(height: 2),
-                Text(subtitle!,
-                    style: TextStyle(color: VColors.muted, fontSize: 15)),
-              ],
+    return LayoutBuilder(builder: (context, constraints) {
+      final compact = constraints.maxWidth < kCompactWidth;
+      final heading = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: compact
+                  ? Theme.of(context).textTheme.headlineSmall
+                  : Theme.of(context).textTheme.headlineMedium),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(subtitle!,
+                style: TextStyle(
+                    color: VColors.muted, fontSize: compact ? 13.5 : 15)),
+          ],
+        ],
+      );
+      // Phone: the actions wrap onto their own row(s) under the title
+      // instead of squeezing it.
+      if (compact) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            heading,
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(spacing: 8, runSpacing: 8, children: actions),
             ],
-          ),
-        ),
-        ...actions.map((e) => Padding(
-              padding: const EdgeInsets.only(left: 10),
-              child: e,
-            )),
-      ],
-    );
+          ],
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: heading),
+          ...actions.map((e) => Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: e,
+              )),
+        ],
+      );
+    });
   }
 }
 
@@ -228,8 +261,8 @@ class _AsyncPaneState<T> extends State<AsyncPane<T>> {
                 Text('Ma\'lumot yuklanmadi',
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 6),
-                SizedBox(
-                  width: 520,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
                   child: Text('$_error',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: VColors.muted)),
@@ -248,7 +281,10 @@ class _AsyncPaneState<T> extends State<AsyncPane<T>> {
 /// grid (Sotuv, session product picker) so they stay visually identical.
 class CategoryChip extends StatelessWidget {
   const CategoryChip(
-      {super.key, required this.label, required this.selected, required this.onTap});
+      {super.key,
+      required this.label,
+      required this.selected,
+      required this.onTap});
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -262,8 +298,7 @@ class CategoryChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected ? VColors.green : VColors.field,
             borderRadius: BorderRadius.circular(9),
-            border:
-                Border.all(color: selected ? VColors.green : VColors.line),
+            border: Border.all(color: selected ? VColors.green : VColors.line),
           ),
           child: Center(
             child: Text(label,
@@ -321,8 +356,7 @@ class QtyStepper extends StatelessWidget {
 
   Widget _btn(IconData icon, VoidCallback onTap) => InkWell(
         onTap: onTap,
-        child:
-            SizedBox(width: 30, height: 30, child: Icon(icon, size: 15)),
+        child: SizedBox(width: 30, height: 30, child: Icon(icon, size: 15)),
       );
 }
 
@@ -422,13 +456,14 @@ class CategoryIconChip extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(
-                  fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white)),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white)),
         ),
       );
     }
     final c = color ??
-        kCategoryFallbackColors[
-            fallbackIndex % kCategoryFallbackColors.length];
+        kCategoryFallbackColors[fallbackIndex % kCategoryFallbackColors.length];
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -525,6 +560,8 @@ class ProductGridCard extends StatelessWidget {
         ),
         child: InkWell(
           onTap: onTap,
+          // The picture takes whatever height the grid cell leaves after the
+          // text, so a cell of any ratio never overflows at the bottom.
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -537,7 +574,8 @@ class ProductGridCard extends StatelessWidget {
                       : VColors.field,
                   padding: const EdgeInsets.all(6),
                   child: hasImage
-                      ? Image.network(imageUrl,
+                      ? Image.network(
+                          imageUrl,
                           fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => Icon(
                               Icons.inventory_2_outlined,
@@ -568,11 +606,15 @@ class ProductGridCard extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                             color: VColors.ink)),
                     const SizedBox(height: 3),
-                    Text(money(product['sale_price']),
-                        style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: VColors.ink)),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(money(product['sale_price']),
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: VColors.ink)),
+                    ),
                     const SizedBox(height: 3),
                     Text(statusText,
                         maxLines: 1,
@@ -589,5 +631,88 @@ class ProductGridCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// "Label ............ value" line of a totals list. The label wraps onto
+/// more lines when space is short; the value (usually a sum) is never cut
+/// off -- as a last resort it shrinks to fit.
+class InfoRow extends StatelessWidget {
+  const InfoRow(this.label, this.value,
+      {super.key, this.bold = false, this.fontSize = 16, this.valueColor});
+
+  final String label;
+  final String value;
+  final bool bold;
+  final double fontSize;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Expanded(
+            child: Text(label,
+                style: TextStyle(color: VColors.muted, fontSize: fontSize)),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            flex: 0,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                  maxWidth: MediaQuery.sizeOf(context).width * .6),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(value,
+                    style: TextStyle(
+                        fontWeight: bold ? FontWeight.w900 : FontWeight.w600,
+                        fontSize: fontSize,
+                        color: valueColor)),
+              ),
+            ),
+          ),
+        ],
+      );
+}
+
+/// A list row with [content] on the left and [actions] on the right; on a
+/// phone the actions move under the content (right-aligned) so neither gets
+/// squeezed into a sliver of width.
+class AdaptiveRow extends StatelessWidget {
+  const AdaptiveRow(
+      {super.key,
+      required this.content,
+      this.leading,
+      this.actions = const []});
+
+  final Widget? leading;
+  final Widget content;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final main = Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (leading != null) ...[leading!, const SizedBox(width: 14)],
+      Expanded(child: content),
+    ]);
+    if (actions.isEmpty) return main;
+    if (isCompactWidth(context)) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        main,
+        const SizedBox(height: 10),
+        Wrap(
+          alignment: WrapAlignment.end,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: actions,
+        ),
+      ]);
+    }
+    return Row(children: [
+      if (leading != null) ...[leading!, const SizedBox(width: 14)],
+      Expanded(child: content),
+      for (final a in actions) ...[const SizedBox(width: 10), a],
+    ]);
   }
 }

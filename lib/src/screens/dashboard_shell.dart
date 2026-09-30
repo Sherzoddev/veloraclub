@@ -23,7 +23,8 @@ import 'staff_page.dart';
 import 'waitlist_page.dart';
 
 class _NavItem {
-  const _NavItem(this.label, this.icon, this.page, {this.cashierVisible = true});
+  const _NavItem(this.label, this.icon, this.page,
+      {this.cashierVisible = true});
   final String label;
   final IconData icon;
   final Widget page;
@@ -37,17 +38,17 @@ class DashboardShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final width = controller.sidebarExpanded ? 232.0 : 68.0;
     final allItems = [
-      _NavItem('Klub', Icons.grid_view_rounded, ClubPage(controller: controller)),
+      _NavItem(
+          'Klub', Icons.grid_view_rounded, ClubPage(controller: controller)),
       _NavItem('Sotuvlar', Icons.storefront_outlined,
           SalesPage(controller: controller)),
       _NavItem('Bronlar', Icons.event_available_outlined,
           ReservationsPage(controller: controller)),
       _NavItem('Navbat', Icons.hourglass_empty_rounded,
           WaitlistPage(controller: controller)),
-      _NavItem(
-          'Mijozlar', Icons.groups_outlined, CustomersPage(controller: controller)),
+      _NavItem('Mijozlar', Icons.groups_outlined,
+          CustomersPage(controller: controller)),
       _NavItem('Cheklar', Icons.receipt_long_outlined,
           OrdersPage(controller: controller)),
       _NavItem('Smena', Icons.point_of_sale_outlined,
@@ -63,7 +64,8 @@ class DashboardShell extends StatelessWidget {
       _NavItem('Rele', Icons.settings_remote_outlined,
           RelayPage(controller: controller),
           cashierVisible: false),
-      _NavItem('Xodimlar', Icons.badge_outlined, StaffPage(controller: controller),
+      _NavItem(
+          'Xodimlar', Icons.badge_outlined, StaffPage(controller: controller),
           cashierVisible: false),
       _NavItem('Sozlamalar', Icons.settings_outlined,
           SettingsPage(controller: controller),
@@ -74,150 +76,194 @@ class DashboardShell extends StatelessWidget {
         isCashier ? allItems.where((i) => i.cashierVisible).toList() : allItems;
     final pages = items.map((i) => i.page).toList();
     final activePage = controller.page.clamp(0, pages.length - 1);
-    return Scaffold(
-      body: Row(
+    return LayoutBuilder(builder: (context, constraints) {
+      // Phones and tablets in portrait: the sidebar becomes a drawer behind
+      // a menu button, and the top bar drops what doesn't fit.
+      final compact = constraints.maxWidth < _compactWidth;
+      // Tablets: the full-width sidebar would eat a third of the screen --
+      // it stays icon-only there whatever the saved preference is.
+      final expanded =
+          controller.sidebarExpanded && constraints.maxWidth >= 1100;
+      final width = expanded ? 232.0 : 68.0;
+      final content = Column(
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: width,
-            color: VColors.surface,
-            child: Column(
-              children: [
-                SizedBox(
-                  height: 72,
-                  child: controller.sidebarExpanded
-                      ? Row(
-                          children: [
-                            const SizedBox(width: 18),
-                            Icon(Icons.sports_esports_rounded,
-                                color: VColors.green, size: 22),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                controller.context!.clubName,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w900, fontSize: 16),
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Menyuni yig\'ish',
-                              onPressed: controller.toggleSidebar,
-                              icon: const Icon(
-                                  Icons.keyboard_double_arrow_left_rounded,
-                                  size: 19),
-                              color: VColors.muted,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                  minWidth: 32, minHeight: 32),
-                            ),
-                            const SizedBox(width: 12),
-                          ],
-                        )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.sports_esports_rounded,
-                                color: VColors.green, size: 22),
-                            const SizedBox(height: 7),
-                            IconButton(
-                              tooltip: 'Menyuni ochish',
-                              onPressed: controller.toggleSidebar,
-                              icon: const Icon(Icons.menu_rounded, size: 19),
-                              color: VColors.muted,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                  minWidth: 32, minHeight: 32),
-                            ),
-                          ],
-                        ),
-                ),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      final active = activePage == index;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 3),
-                        child: Material(
-                          color:
-                              active ? VColors.greenSoft : Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          child: InkWell(
-                            onTap: () => controller.go(index),
-                            borderRadius: BorderRadius.circular(12),
-                            child: SizedBox(
-                              height: 42,
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 44,
-                                    child: Icon(item.icon,
-                                        size: 19,
-                                        color: active
-                                            ? VColors.green
-                                            : VColors.muted),
-                                  ),
-                                  if (controller.sidebarExpanded)
-                                    Expanded(
-                                      child: Text(tr(item.label),
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: active
-                                                ? VColors.ink
-                                                : VColors.muted,
-                                            fontWeight: active
-                                                ? FontWeight.w800
-                                                : FontWeight.w600,
-                                            fontSize: 14,
-                                          )),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
+          _TopBar(controller: controller, compact: compact),
           Expanded(
-            child: Column(
-              children: [
-                _TopBar(controller: controller),
-                Expanded(
-                  child: IndexedStack(index: activePage, children: pages),
-                ),
-              ],
-            ),
+            child: IndexedStack(index: activePage, children: pages),
           ),
         ],
-      ),
+      );
+      if (compact) {
+        return Scaffold(
+          drawer: Drawer(
+            backgroundColor: VColors.surface,
+            child: SafeArea(
+              child: Builder(
+                builder: (drawerContext) => _sidebar(items, activePage,
+                    expanded: true,
+                    onPicked: () => Navigator.of(drawerContext).pop()),
+              ),
+            ),
+          ),
+          body: SafeArea(child: content),
+        );
+      }
+      return Scaffold(
+        body: SafeArea(
+          child: Row(
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: width,
+                color: VColors.surface,
+                child: _sidebar(items, activePage,
+                    expanded: expanded,
+                    canToggle: constraints.maxWidth >= 1100),
+              ),
+              Expanded(child: content),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _sidebar(List<_NavItem> items, int activePage,
+      {required bool expanded, bool canToggle = true, VoidCallback? onPicked}) {
+    return Column(
+      children: [
+        SizedBox(
+          height: 72,
+          child: expanded
+              ? Row(
+                  children: [
+                    const SizedBox(width: 18),
+                    Icon(Icons.sports_esports_rounded,
+                        color: VColors.green, size: 22),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        controller.context!.clubName,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w900, fontSize: 16),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Menyuni yig\'ish',
+                      onPressed: controller.toggleSidebar,
+                      icon: const Icon(Icons.keyboard_double_arrow_left_rounded,
+                          size: 19),
+                      color: VColors.muted,
+                      padding: EdgeInsets.zero,
+                      constraints:
+                          const BoxConstraints(minWidth: 32, minHeight: 32),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.sports_esports_rounded,
+                        color: VColors.green, size: 22),
+                    if (canToggle) ...[
+                      const SizedBox(height: 4),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        tooltip: 'Menyuni ochish',
+                        onPressed: controller.toggleSidebar,
+                        icon: const Icon(Icons.menu_rounded, size: 19),
+                        color: VColors.muted,
+                        padding: EdgeInsets.zero,
+                        constraints:
+                            const BoxConstraints(minWidth: 32, minHeight: 32),
+                      ),
+                    ],
+                  ],
+                ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            itemCount: items.length,
+            itemBuilder: (context, index) {
+              final item = items[index];
+              final active = activePage == index;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Material(
+                  color: active ? VColors.greenSoft : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    onTap: () {
+                      controller.go(index);
+                      onPicked?.call();
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      height: 42,
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 44,
+                            child: Icon(item.icon,
+                                size: 19,
+                                color: active ? VColors.green : VColors.muted),
+                          ),
+                          if (expanded)
+                            Expanded(
+                              child: Text(tr(item.label),
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: active ? VColors.ink : VColors.muted,
+                                    fontWeight: active
+                                        ? FontWeight.w800
+                                        : FontWeight.w600,
+                                    fontSize: 14,
+                                  )),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
 
+const _compactWidth = 760.0;
+
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.controller});
+  const _TopBar({required this.controller, this.compact = false});
   final ClubController controller;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final showUser = !compact && MediaQuery.sizeOf(context).width >= 1100;
     return Container(
-      height: 72,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      height: compact ? 60 : 72,
+      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 24),
       decoration: BoxDecoration(
         color: VColors.surface,
         border: Border(bottom: BorderSide(color: VColors.line)),
       ),
       child: Row(
         children: [
-          const PillStatus(),
+          if (compact)
+            IconButton(
+              tooltip: tr('Menyu'),
+              onPressed: () => Scaffold.of(context).openDrawer(),
+              icon: const Icon(Icons.menu_rounded),
+            )
+          else
+            const PillStatus(),
           const Spacer(),
           _NotificationsBell(controller: controller),
           const SizedBox(width: 8),
@@ -232,8 +278,8 @@ class _TopBar extends StatelessWidget {
                 border: Border.all(color: VColors.line),
               ),
               child: Text(LocaleController.instance.locale.toUpperCase(),
-                  style:
-                      const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w800, fontSize: 13)),
             ),
           ),
           const SizedBox(width: 8),
@@ -252,18 +298,27 @@ class _TopBar extends StatelessWidget {
             iconSize: 21,
             icon: const Icon(Icons.print_outlined),
           ),
-          const SizedBox(width: 12),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(controller.context!.userName,
-                  style:
-                      const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-              Text(controller.context!.roleName,
-                  style: TextStyle(color: VColors.muted, fontSize: 11)),
-            ],
-          ),
+          if (showUser) ...[
+            const SizedBox(width: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 220),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(controller.context!.userName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 14)),
+                  Text(controller.context!.roleName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: VColors.muted, fontSize: 11)),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(width: 8),
           IconButton(
             tooltip: tr('Chiqish'),
@@ -400,8 +455,7 @@ class _NotificationsBellState extends State<_NotificationsBell> {
             top: 6,
             child: IgnorePointer(
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
                   color: VColors.red,
                   borderRadius: BorderRadius.circular(8),
@@ -425,8 +479,8 @@ class _NotificationsBellState extends State<_NotificationsBell> {
     final offset = box.localToGlobal(Offset(0, box.size.height));
     await showMenu<void>(
       context: context,
-      position:
-          RelativeRect.fromLTRB(offset.dx - 320, offset.dy + 6, offset.dx, offset.dy),
+      position: RelativeRect.fromLTRB(
+          offset.dx - 320, offset.dy + 6, offset.dx, offset.dy),
       color: VColors.surface,
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
@@ -451,8 +505,8 @@ class _NotificationsBellState extends State<_NotificationsBell> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Bildirishnomalar',
-                        style:
-                            TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w900, fontSize: 15)),
                     const SizedBox(height: 10),
                     if (lowStock.isEmpty && pending.isEmpty)
                       Padding(
