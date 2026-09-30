@@ -39,28 +39,39 @@ class _ExpensesPageState extends State<ExpensesPage> {
             builder: (_, rows) => Text(
                 'Jami (oxirgi ${rows.length} ta): ${money(rows.fold<num>(0, (a, b) => a + (b['amount'] as num? ?? 0)))}',
                 style: TextStyle(color: VColors.muted))),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         AsyncPane<List<Map<String, dynamic>>>(
           future: widget.controller.repository
               .expenseCategories(widget.controller.context!.clubId),
           builder: (context, cats) {
-            return Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final c in cats)
-                ChoiceChip(
-                  label: Text('${c['name']}'),
-                  selected: category == '${c['id']}',
-                  onSelected: (_) => setState(() => category =
-                      category == '${c['id']}' ? 'ALL' : '${c['id']}'),
-                ),
-              ActionChip(
-                avatar: const Icon(Icons.add, size: 16),
-                label: const Text('Toifa'),
-                onPressed: () => _addCategory(context),
+            // One row that scrolls sideways: wrapped chips took half a
+            // phone screen away from the list itself.
+            return SizedBox(
+              height: 44,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final c in cats)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text('${c['name']}'),
+                        selected: category == '${c['id']}',
+                        onSelected: (_) => setState(() => category =
+                            category == '${c['id']}' ? 'ALL' : '${c['id']}'),
+                      ),
+                    ),
+                  ActionChip(
+                    avatar: const Icon(Icons.add, size: 16),
+                    label: const Text('Toifa'),
+                    onPressed: () => _addCategory(context),
+                  ),
+                ],
               ),
-            ]);
+            );
           },
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 12),
         Expanded(
             child: AsyncPane<List<Map<String, dynamic>>>(
                 future: widget.controller.repository
@@ -320,21 +331,30 @@ class _ExpensesPageState extends State<ExpensesPage> {
     }
   }
 
+  // Cancelling marks the expense REVERSED; every total (shift, reports, the
+  // owner bot) counts only ACTIVE expenses. This used to also insert a
+  // negative counter-entry, which the expenses_amount > 0 check refused, so
+  // nothing was ever cancelled.
   Future<void> _reverse(BuildContext context, Map<String, dynamic> e) async {
     final controller = widget.controller;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Xarajatni bekor qilish?'),
+        content: Text(money(e['amount'])),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Yo\'q')),
+          FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: VColors.red),
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Bekor qilish')),
+        ],
+      ),
+    );
+    if (ok != true) return;
     try {
-      await controller.repository.client.from('expenses').insert({
-        'club_id': controller.context!.clubId,
-        'category_id': e['category_id'],
-        'cash_shift_id': e['cash_shift_id'],
-        'payment_method_id': e['payment_method_id'],
-        'amount': -(e['amount'] as num),
-        'comment': 'Qaytarish: ${e['comment'] ?? ''}',
-        'spent_at': DateTime.now().toUtc().toIso8601String(),
-        'created_by': controller.repository.user!.id,
-        'reverses_expense_id': e['id'],
-        'status': 'REVERSED'
-      });
       await controller.repository.client
           .from('expenses')
           .update({'status': 'REVERSED'}).eq('id', e['id']);

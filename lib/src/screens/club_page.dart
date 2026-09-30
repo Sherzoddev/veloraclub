@@ -949,7 +949,21 @@ class _ResourceCard extends StatelessWidget {
   }
 
   Future<void> _startDialog(BuildContext context) async {
+    // The seat's own tariff: its default, else the tariff named like its
+    // zone (Зал -> «Зал»), else the only one there is.
     String? tariffId = resource['default_tariff_id']?.toString();
+    if (tariffId == null || !tariffs.any((t) => '${t['id']}' == tariffId)) {
+      final zone = '${resource['zone'] ?? ''}'.trim().toLowerCase();
+      final byZone = tariffs.where((t) =>
+          zone.isNotEmpty && '${t['name']}'.trim().toLowerCase() == zone);
+      tariffId = byZone.isNotEmpty
+          ? '${byZone.first['id']}'
+          : tariffs.length == 1
+              ? '${tariffs.first['id']}'
+              : null;
+    }
+    // A cashier doesn't pick the tariff -- the seat's one is used as is.
+    final fixedTariff = controller.context!.isCashier && tariffId != null;
     String? customerId;
     String? customerLabel;
     int? plannedMinutes;
@@ -989,33 +1003,46 @@ class _ResourceCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  initialValue: tariffId,
-                  decoration: InputDecoration(labelText: tr('Tarif')),
-                  items: tariffs
-                      .map((t) => DropdownMenuItem(
-                            value: '${t['id']}',
-                            child: Text(
-                                '${t['name']} · ${money(t['price_per_hour'])}/${tr('soat')}'),
-                          ))
-                      .toList(),
-                  onChanged: (v) => setState(() {
-                    tariffId = v;
-                    final amount = int.tryParse(prepaidAmountCtrl.text);
-                    final tariff = tariffs.firstWhere(
+                if (fixedTariff)
+                  Builder(builder: (context) {
+                    final t = tariffs.firstWhere(
                         (t) => '${t['id']}' == tariffId,
                         orElse: () => const {});
-                    final pricePerHour =
-                        (tariff['price_per_hour'] as num?)?.toDouble();
-                    plannedMinutes = (amount == null ||
-                            amount <= 0 ||
-                            pricePerHour == null ||
-                            pricePerHour <= 0)
-                        ? null
-                        : (amount / pricePerHour * 60).round();
-                  }),
-                ),
+                    return InputDecorator(
+                      decoration: InputDecoration(labelText: tr('Tarif')),
+                      child: Text(
+                          '${t['name'] ?? ''} · ${money(t['price_per_hour'])}/${tr('soat')}',
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                    );
+                  })
+                else
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    initialValue: tariffId,
+                    decoration: InputDecoration(labelText: tr('Tarif')),
+                    items: tariffs
+                        .map((t) => DropdownMenuItem(
+                              value: '${t['id']}',
+                              child: Text(
+                                  '${t['name']} · ${money(t['price_per_hour'])}/${tr('soat')}'),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() {
+                      tariffId = v;
+                      final amount = int.tryParse(prepaidAmountCtrl.text);
+                      final tariff = tariffs.firstWhere(
+                          (t) => '${t['id']}' == tariffId,
+                          orElse: () => const {});
+                      final pricePerHour =
+                          (tariff['price_per_hour'] as num?)?.toDouble();
+                      plannedMinutes = (amount == null ||
+                              amount <= 0 ||
+                              pricePerHour == null ||
+                              pricePerHour <= 0)
+                          ? null
+                          : (amount / pricePerHour * 60).round();
+                    }),
+                  ),
                 const SizedBox(height: 16),
                 Text(tr('To\'lov summasi bo\'yicha vaqt (ixtiyoriy)'),
                     style: TextStyle(color: VColors.muted, fontSize: 13)),
