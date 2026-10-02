@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../i18n.dart';
+import '../services/notification_sound.dart';
 import '../state/club_controller.dart';
 import '../theme.dart';
 import '../utils.dart';
@@ -345,6 +346,18 @@ int sessionTimeCharge(
   return prepaid > 0 && amount > prepaid ? prepaid : amount;
 }
 
+/// True while a table waits for the cashier after its paid time ran out: the
+/// app paused it right at the planned end (light off, clock stopped), so the
+/// pause began at, or a moment after, planned_end_at. A pause the cashier
+/// pressed earlier doesn't count.
+bool sessionTimeUpPaused(Map<String, dynamic> session) {
+  if (session['status'] != 'PAUSED') return false;
+  final end = DateTime.tryParse('${session['planned_end_at']}');
+  final paused = DateTime.tryParse('${session['pause_started_at']}');
+  if (end == null || paused == null) return false;
+  return !paused.isBefore(end.subtract(const Duration(seconds: 15)));
+}
+
 /// Live-ticking pill/timer/amount/actions shown on an occupied table card.
 /// Runs its own 1s timer purely to animate the elapsed-time text and a
 /// client-side per-hour estimate of the amount; the authoritative charge is
@@ -359,6 +372,8 @@ class _ActiveBody extends StatefulWidget {
     required this.onResume,
     required this.onRound,
     required this.onTimeUp,
+    required this.onContinue,
+    required this.onFinish,
   });
 
   final Map<String, dynamic> session;
@@ -367,7 +382,13 @@ class _ActiveBody extends StatefulWidget {
   final VoidCallback onPause;
   final VoidCallback onResume;
   final VoidCallback onRound;
-  final VoidCallback onTimeUp;
+
+  /// Paid time ran out on an active table: pause it (light off) and let the
+  /// cashier decide later. A pause that doesn't go through is retried by the
+  /// card after 15 seconds.
+  final Future<void> Function() onTimeUp;
+  final VoidCallback onContinue;
+  final VoidCallback onFinish;
 
   @override
   State<_ActiveBody> createState() => _ActiveBodyState();
@@ -375,34 +396,56 @@ class _ActiveBody extends StatefulWidget {
 
 class _ActiveBodyState extends State<_ActiveBody> {
   Timer? _timer;
-  bool _timeUpShown = false;
+  bool _timeUpBusy = false;
+  DateTime? _timeUpTriedAt;
+  bool _timeUpSounded = false;
 
   @override
   void initState() {
     super.initState();
-    if (!_paused) {
-      _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(_checkTimeUp);
-      });
-    }
+    // Always ticking, also while paused: a card first drawn paused and then
+    // resumed must start counting without being rebuilt.
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(_checkTimeUp);
+    });
   }
 
   @override
   void didUpdateWidget(_ActiveBody old) {
     super.didUpdateWidget(old);
     if (old.session['planned_end_at'] != widget.session['planned_end_at']) {
-      _timeUpShown = false;
+      _timeUpSounded = false;
+      _timeUpTriedAt = null;
     }
   }
 
+  /// Paid time is over on a running table: chime once, then pause it. One
+  /// card is never stuck on a dialog while 10-15 tables run out together —
+  /// each just turns off, beeps and waits for "Davom ettirish"/"Yakunlash".
+  /// A failed pause is retried every 15 s.
   void _checkTimeUp() {
     final end = _plannedEnd;
-    if (!_timeUpShown && end != null && DateTime.now().isAfter(end)) {
-      _timeUpShown = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onTimeUp();
-      });
+    if (_paused || _timeUpBusy || end == null || !DateTime.now().isAfter(end)) {
+      return;
     }
+    final tried = _timeUpTriedAt;
+    if (tried != null &&
+        DateTime.now().difference(tried) < const Duration(seconds: 15)) {
+      return;
+    }
+    _timeUpBusy = true;
+    _timeUpTriedAt = DateTime.now();
+    if (!_timeUpSounded) {
+      _timeUpSounded = true;
+      unawaited(playNotificationSound());
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        if (mounted) await widget.onTimeUp();
+      } finally {
+        _timeUpBusy = false;
+      }
+    });
   }
 
   @override
@@ -441,24 +484,28 @@ class _ActiveBodyState extends State<_ActiveBody> {
   Widget build(BuildContext context) {
     final customer = widget.session['customers'];
     final round = (widget.session['round_number'] as num?)?.toInt() ?? 1;
+    // Paid time is over: the table is already paused and waiting for the
+    // cashier (or is about to be, within a second).
+    final timeUp = sessionTimeUpPaused(widget.session) || _timeIsUp;
+    final waiting = sessionTimeUpPaused(widget.session);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _StatusPill(
-          label: tr(_paused
-              ? 'PAUZA'
-              : _timeIsUp
-                  ? 'VAQT TUGADI'
+          label: tr(timeUp
+              ? 'VAQT TUGADI'
+              : _paused
+                  ? 'PAUZA'
                   : 'O\'YIN BORMOQDA'),
-          background: _paused
-              ? VColors.orange.withValues(alpha: .16)
-              : _timeIsUp
-                  ? VColors.red.withValues(alpha: .16)
+          background: timeUp
+              ? VColors.red.withValues(alpha: .16)
+              : _paused
+                  ? VColors.orange.withValues(alpha: .16)
                   : VColors.greenSoft,
-          foreground: _paused
-              ? VColors.orange
-              : _timeIsUp
-                  ? VColors.red
+          foreground: timeUp
+              ? VColors.red
+              : _paused
+                  ? VColors.orange
                   : VColors.green,
         ),
         if (customer is Map) ...[
@@ -519,41 +566,77 @@ class _ActiveBodyState extends State<_ActiveBody> {
           Text(tr(widget.familyLabel),
               style: TextStyle(color: VColors.subtle, fontSize: 13)),
         const SizedBox(height: 10),
-        Row(children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _paused ? widget.onResume : widget.onPause,
-              icon: Icon(
-                  _paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                  size: 19),
-              label: Text(tr(_paused ? 'Davom' : 'Pauza')),
-              style: OutlinedButton.styleFrom(
-                backgroundColor: VColors.field,
-                foregroundColor: VColors.ink,
-                side: BorderSide(color: VColors.line),
-                minimumSize: const Size(0, 46),
-                textStyle: appFont(
-                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+        if (waiting)
+          Row(children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: widget.onContinue,
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: VColors.field,
+                  foregroundColor: VColors.green,
+                  side: BorderSide(color: VColors.green),
+                  minimumSize: const Size(0, 46),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  textStyle: appFont(const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w900)),
+                ),
+                child: FittedBox(
+                    fit: BoxFit.scaleDown, child: Text(tr('Davom ettirish'))),
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: widget.onRound,
-              icon: const Icon(Icons.replay_rounded, size: 19),
-              label: Text(tr('Raund')),
-              style: OutlinedButton.styleFrom(
-                backgroundColor: VColors.field,
-                foregroundColor: VColors.green,
-                side: BorderSide(color: VColors.green),
-                minimumSize: const Size(0, 46),
-                textStyle: appFont(
-                    const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton(
+                onPressed: widget.onFinish,
+                style: FilledButton.styleFrom(
+                  backgroundColor: VColors.red,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 46),
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  textStyle: appFont(const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w900)),
+                ),
+                child: FittedBox(
+                    fit: BoxFit.scaleDown, child: Text(tr('Yakunlash'))),
               ),
             ),
-          ),
-        ]),
+          ])
+        else
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _paused ? widget.onResume : widget.onPause,
+                icon: Icon(
+                    _paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                    size: 19),
+                label: Text(tr(_paused ? 'Davom' : 'Pauza')),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: VColors.field,
+                  foregroundColor: VColors.ink,
+                  side: BorderSide(color: VColors.line),
+                  minimumSize: const Size(0, 46),
+                  textStyle: appFont(const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: widget.onRound,
+                icon: const Icon(Icons.replay_rounded, size: 19),
+                label: Text(tr('Raund')),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: VColors.field,
+                  foregroundColor: VColors.green,
+                  side: BorderSide(color: VColors.green),
+                  minimumSize: const Size(0, 46),
+                  textStyle: appFont(const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ),
+          ]),
       ],
     );
   }
@@ -671,6 +754,9 @@ class _ResourceCard extends StatelessWidget {
     }.contains('${resource['status']}');
     final syncing = !active && databaseBusy;
     final paused = active && session!['status'] == 'PAUSED';
+    // Paid time ran out: the light is off and the card turns red until the
+    // cashier continues or finishes.
+    final timeUp = active && sessionTimeUpPaused(session!);
     final tariff = resource['tariffs'];
     final familyLabel = resource['resource_types'] is Map
         ? (resource['resource_types']['family'] == 'BILLIARD'
@@ -682,17 +768,25 @@ class _ResourceCard extends StatelessWidget {
     return Card(
       clipBehavior: Clip.antiAlias,
       color: active
-          ? (paused
+          ? (timeUp
               ? Color.alphaBlend(
-                  VColors.orange.withValues(alpha: .08), VColors.surface)
-              : Color.alphaBlend(
-                  VColors.green.withValues(alpha: .08), VColors.surface))
+                  VColors.red.withValues(alpha: .10), VColors.surface)
+              : paused
+                  ? Color.alphaBlend(
+                      VColors.orange.withValues(alpha: .08), VColors.surface)
+                  : Color.alphaBlend(
+                      VColors.green.withValues(alpha: .08), VColors.surface))
           : VColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: const BorderRadius.all(Radius.circular(16)),
         side: BorderSide(
-          color:
-              active ? (paused ? VColors.orange : VColors.green) : VColors.line,
+          color: active
+              ? (timeUp
+                  ? VColors.red
+                  : paused
+                      ? VColors.orange
+                      : VColors.green)
+              : VColors.line,
           width: active ? 1.5 : 1,
         ),
       ),
@@ -780,6 +874,8 @@ class _ResourceCard extends StatelessWidget {
                     onResume: () => _resume(context),
                     onRound: () => _round(context),
                     onTimeUp: () => _timeUp(context),
+                    onContinue: () => _continueAfterTimeUp(context),
+                    onFinish: () => _finish(context),
                   ),
                 ),
             ],
@@ -798,110 +894,103 @@ class _ResourceCard extends StatelessWidget {
     }
   }
 
+  /// Paid time ran out: cut the light and pause the table right away — no
+  /// dialog, so 10-15 tables running out together don't pile up on the
+  /// cashier. The card turns red and waits for "Davom ettirish"/"Yakunlash".
   Future<void> _timeUp(BuildContext context) async {
-    // Enforce the paid time physically, not just on screen — cut the relay
-    // the instant time is up, before the cashier has even decided anything.
+    final id = '${session!['id']}';
     if (resource['relay_device_id'] != null) {
       try {
         final device = await controller.repository
             .relayDeviceForResource('${resource['id']}');
         await controller.repository.switchRelayDevice(device, false);
-        await controller.repository.relayCommand('${resource['id']}', false);
       } catch (_) {
-        // Best-effort — a relay hiccup shouldn't block the decision dialog.
+        // Best-effort: the pause below also queues the relay command.
       }
     }
-    if (!context.mounted) return;
-    final action = await showDialog<String>(
+    try {
+      await controller.repository.pauseSession(id);
+    } catch (_) {
+      // Already paused from another terminal, or no connection: the refresh
+      // shows the real state and the card retries after a few seconds.
+    }
+    controller.refresh();
+  }
+
+  Future<void> _finish(BuildContext context) async {
+    try {
+      await controller.repository.finishSession('${session!['id']}');
+      final orderId = session!['order_id'];
+      controller.refresh();
+      if (context.mounted && orderId != null) {
+        await showSessionPaymentDialog(
+          context,
+          controller: controller,
+          orderId: '$orderId',
+          sessionId: '${session!['id']}',
+          resourceName: '${resource['name']}',
+          pricePerHour: _pricePerHour,
+          familyLabel: _familyLabel,
+        );
+        controller.refresh();
+      }
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  /// "Davom ettirish" on a table that ran out of paid time: ask for the extra
+  /// sum, add that time and switch the table back on.
+  Future<void> _continueAfterTimeUp(BuildContext context) async {
+    final tariff = resource['tariffs'];
+    final pricePerHour =
+        (tariff is Map ? tariff['price_per_hour'] as num? : null)?.toDouble() ??
+            0;
+    final amountCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
       context: context,
-      barrierDismissible: false,
       builder: (c) => AlertDialog(
         scrollable: true,
-        title: Text(tr('Vaqt tugadi')),
-        content: Text(LocaleController.instance.isRu
-            ? 'Время, назначенное для «${resource['name']}», истекло. Продолжить или завершить?'
-            : '${resource['name']} uchun belgilangan vaqt tugadi. Davom ettirasizmi yoki yakunlaysizmi?'),
+        title: Text('${resource['name']} · ${tr('Qo\'shimcha vaqt')}'),
+        content: TextField(
+          controller: amountCtrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+              labelText: tr('Qo\'shimcha summa'), suffixText: tr('so\'m')),
+        ),
         actions: [
-          OutlinedButton(
-              onPressed: () => Navigator.pop(c, 'continue'),
-              child: Text(tr('Davom ettirish'))),
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(tr('Bekor qilish'))),
           FilledButton(
-              onPressed: () => Navigator.pop(c, 'finish'),
-              child: Text(tr('Yakunlash'))),
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(tr('Davom ettirish'))),
         ],
       ),
     );
-    if (!context.mounted) return;
-
-    if (action == 'finish') {
-      try {
-        await controller.repository.finishSession('${session!['id']}');
-        final orderId = session!['order_id'];
-        controller.refresh();
-        if (context.mounted && orderId != null) {
-          await showSessionPaymentDialog(
-            context,
-            controller: controller,
-            orderId: '$orderId',
-            sessionId: '${session!['id']}',
-            resourceName: '${resource['name']}',
-            pricePerHour: _pricePerHour,
-            familyLabel: _familyLabel,
-          );
-          controller.refresh();
-        }
-      } catch (e) {
-        if (context.mounted) showError(context, e);
-      }
-      return;
-    }
-
-    if (action == 'continue') {
-      final tariff = resource['tariffs'];
-      final pricePerHour =
-          (tariff is Map ? tariff['price_per_hour'] as num? : null)
-                  ?.toDouble() ??
-              0;
-      final amountCtrl = TextEditingController();
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (c) => AlertDialog(
-          scrollable: true,
-          title: Text(tr('Qo\'shimcha vaqt')),
-          content: TextField(
-            controller: amountCtrl,
-            autofocus: true,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-                labelText: tr('Qo\'shimcha summa'), suffixText: tr('so\'m')),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(c, false),
-                child: Text(tr('Bekor qilish'))),
-            FilledButton(
-                onPressed: () => Navigator.pop(c, true),
-                child: Text(tr('Davom ettirish'))),
-          ],
-        ),
-      );
-      if (ok != true) return;
-      final amount = int.tryParse(amountCtrl.text) ?? 0;
-      if (amount <= 0 || pricePerHour <= 0) return;
-      final minutes = (amount / pricePerHour * 60).round();
-      try {
-        await controller.repository
-            .extendSessionTimer('${session!['id']}', minutes, amount: amount);
-        if (resource['relay_device_id'] != null) {
+    if (ok != true) return;
+    final amount = int.tryParse(amountCtrl.text) ?? 0;
+    if (amount <= 0 || pricePerHour <= 0) return;
+    final minutes = (amount / pricePerHour * 60).round();
+    final id = '${session!['id']}';
+    try {
+      await controller.repository
+          .extendSessionTimer(id, minutes, amount: amount);
+      await controller.repository.resumeSession(id);
+      if (resource['relay_device_id'] != null) {
+        try {
           final device = await controller.repository
               .relayDeviceForResource('${resource['id']}');
           await controller.repository.switchRelayDevice(device, true);
-          await controller.repository.relayCommand('${resource['id']}', true);
+        } catch (_) {
+          // The resume queued the relay command; the Rele page can flip it.
         }
-        controller.refresh();
-      } catch (e) {
-        if (context.mounted) showError(context, e);
       }
+      controller.refresh();
+    } catch (e) {
+      controller.refresh();
+      if (context.mounted) showError(context, e);
     }
   }
 
@@ -1352,6 +1441,11 @@ class _ResourceCard extends StatelessWidget {
         }
         return;
       case 'resume':
+        if (sessionTimeUpPaused(session!)) {
+          // Paid time is over: resuming needs a new sum, not a bare resume.
+          await _continueAfterTimeUp(context);
+          return;
+        }
         try {
           await controller.repository.resumeSession(sessionId);
           controller.refresh();
