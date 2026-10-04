@@ -1,9 +1,10 @@
-"""Reads a camera (or a video file) in its own thread and keeps the newest
+"""Reads a camera (or a video file). A background thread keeps the newest
 frame, so a slow detector never makes the picture lag behind."""
 from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 
@@ -15,12 +16,42 @@ os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 log = logging.getLogger("velora_vision.camera")
 
 
+def mask_url(url: str) -> str:
+    """rtsp://user:secret@host/x -> rtsp://user:***@host/x, for logs and lists."""
+    return re.sub(r"(://[^:/@\s]+:)[^@/\s]*@", r"\1***@", url)
+
+
+def open_capture(source: str, timeout_ms: int = 5000):
+    if "://" in source:
+        return cv2.VideoCapture(
+            source, cv2.CAP_FFMPEG,
+            [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout_ms, cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms],
+        )
+    return cv2.VideoCapture(source)
+
+
+def grab_frame(source: str, timeout_ms: int = 5000, attempts: int = 8):
+    """One good picture from the camera, or None."""
+    cap = open_capture(source, timeout_ms)
+    try:
+        if not cap.isOpened():
+            return None
+        frame = None
+        for _ in range(attempts):  # the first frames of a stream are often grey
+            ok, f = cap.read()
+            if ok and f is not None:
+                frame = f
+        return frame
+    finally:
+        cap.release()
+
+
 class CameraReader(threading.Thread):
-    def __init__(self, name: str, source: str, is_file: bool, stop: threading.Event):
+    def __init__(self, name: str, source: str, stop: threading.Event):
         super().__init__(name=f"camera-{name}", daemon=True)
         self.cam_name = name
         self.source = source
-        self.is_file = is_file
+        self.is_file = "://" not in source
         self._stop_event = stop
         self._lock = threading.Lock()
         self._frame = None
@@ -36,7 +67,7 @@ class CameraReader(threading.Thread):
 
     def run(self) -> None:
         while not self._stop_event.is_set():
-            cap = cv2.VideoCapture(self.source)
+            cap = open_capture(self.source, 8000)
             if not cap.isOpened():
                 log.warning("Камера %s: не открывается, повтор через 5 с", self.cam_name)
                 cap.release()

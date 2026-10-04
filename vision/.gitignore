@@ -9,3 +9,7 @@ __pycache__/
 *.mp4
 .pytest_cache/
 !.env.example
+*.onnx
+models/*.onnx
+dist/
+build/

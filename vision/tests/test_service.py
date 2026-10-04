@@ -7,7 +7,7 @@ import numpy as np
 from velora_vision.config import CameraCfg, Config, TableCfg
 from velora_vision.detector import Box
 from velora_vision.messages import camera_offline, format_event
-from velora_vision.sessions import ResourceState
+from velora_vision.sessions import ClubSnapshot, ResourceState
 from velora_vision.service import Service, count_people
 from velora_vision.tracker import Event, Rules
 
@@ -22,10 +22,10 @@ def camera(anchor="foot"):
 
 def config(snap_dir, cam=None):
     return Config(
-        club_id="c", timezone="Asia/Tashkent", poll_seconds=15,
+        timezone="Asia/Tashkent", poll_seconds=15,
         rules=Rules(min_people_play=1, unrecorded_after=5 * MIN, idle_after=15 * MIN,
                     gap=20, cooldown=30 * MIN, grace_after_session=10 * MIN),
-        model="m", confidence=0.4, image_size=640, interval=1.0, offline_after=60,
+        interval=1.0, offline_after=60,
         cameras=[cam or camera()], snapshot_dir=snap_dir,
     )
 
@@ -68,8 +68,9 @@ class FakeSessions:
         self.status = status
 
     def fetch(self):
-        return [ResourceState("1", "1 Stol", "", self.status, None),
-                ResourceState("2", "2 Stol", "", None, None)]
+        return ClubSnapshot("Клуб", "Asia/Tashkent", 1, [
+            ResourceState("1", "1 Stol", "", self.status, None),
+            ResourceState("2", "2 Stol", "", None, None)])
 
 
 class Recorder:

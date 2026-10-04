@@ -35,3 +35,11 @@ def camera_offline(name: str, seconds: float, at: datetime) -> str:
 
 def camera_online(name: str, at: datetime) -> str:
     return f"📷 Камера {name} снова в сети ({at.strftime('%H:%M')})"
+
+
+def started(club: str, tables: int, cameras: int) -> str:
+    return f"✅ Слежение за столами запущено ({club}: столов {tables}, камер {cameras})"
+
+
+def test_message(club: str) -> str:
+    return f"🔔 Проверка связи: сообщения от Velora Vision приходят сюда ({club})"

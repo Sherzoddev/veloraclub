@@ -1,22 +1,22 @@
-// Tables and their running sessions, for the camera service in the club
+// Tables and their running sessions, for the camera program in the club
 // ("vision/" in the repo).
 //
-// The laptop that watches the cameras compares who stands at a table with
-// whether the program has a session running there. It needs nothing but this
-// list, so it gets it from here instead of holding a database key: it sends
-// the club id and a shared secret (the VISION_SECRET function secret, the
-// same value as in the laptop's .env) and gets back table names with the
-// state of their session. No customers, no money.
+// The program on the club's computer compares who stands at a table with
+// whether a session is running there. The one thing the owner types into it
+// is the token of the owner's Telegram bot: it is already a secret that only
+// this club has, so it also tells us which club is asking. We answer with
+// the club's tables and the state of their sessions, the chat the alerts go
+// to and the time zone. No customers, no money.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const VISION_SECRET = Deno.env.get("VISION_SECRET") ?? "";
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// 123456789:AA... as BotFather hands them out.
+const TOKEN = /^\d{6,}:[A-Za-z0-9_-]{30,}$/;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -24,34 +24,33 @@ const json = (body: unknown, status = 200) =>
     headers: { "content-type": "application/json; charset=utf-8" },
   });
 
-// Same time whatever the characters, so the secret can't be guessed
-// byte by byte from response times.
-function safeEqual(a: string, b: string): boolean {
-  const x = new TextEncoder().encode(a);
-  const y = new TextEncoder().encode(b);
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) {
-    diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
-  }
-  return diff === 0;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "METHOD_NOT_ALLOWED" }, 405);
-  if (!VISION_SECRET) return json({ error: "VISION_SECRET_NOT_SET" }, 503);
-  if (!safeEqual(req.headers.get("x-vision-secret") ?? "", VISION_SECRET)) {
-    return json({ error: "UNAUTHORIZED" }, 401);
-  }
 
-  let clubId = "";
+  let token = "";
   try {
-    clubId = String((await req.json())?.club_id ?? "");
+    token = String((await req.json())?.bot_token ?? "").trim();
   } catch (_) {
     return json({ error: "BAD_REQUEST" }, 400);
   }
-  if (!UUID.test(clubId)) return json({ error: "BAD_CLUB_ID" }, 400);
+  if (!TOKEN.test(token)) return json({ error: "BAD_TOKEN_FORMAT" }, 400);
 
-  const [resources, sessions] = await Promise.all([
+  const owner = await db
+    .from("owner_bots")
+    .select("club_id,owner_chat_id,active")
+    .eq("bot_token", token)
+    .maybeSingle();
+  if (owner.error) return json({ error: "DB_ERROR" }, 500);
+  if (!owner.data || !owner.data.active) {
+    // The cashier/client bot has a token of its own: say so, people mix
+    // them up.
+    const other = await db.from("club_bots").select("club_id").eq("bot_token", token).maybeSingle();
+    return json({ error: other.data ? "NOT_OWNER_BOT" : "UNKNOWN_TOKEN" }, other.data ? 409 : 401);
+  }
+  const clubId = owner.data.club_id as string;
+
+  const [club, resources, sessions] = await Promise.all([
+    db.from("clubs").select("name,timezone").eq("id", clubId).maybeSingle(),
     db.from("resources")
       .select("id,name,zone,sort_order,number")
       .eq("club_id", clubId)
@@ -64,7 +63,7 @@ Deno.serve(async (req: Request) => {
       .eq("club_id", clubId)
       .in("status", ["STARTING", "ACTIVE", "PAUSED", "STOPPING"]),
   ]);
-  if (resources.error || sessions.error) {
+  if (club.error || resources.error || sessions.error) {
     return json({ error: "DB_ERROR" }, 500);
   }
 
@@ -78,6 +77,9 @@ Deno.serve(async (req: Request) => {
 
   return json({
     server_time: new Date().toISOString(),
+    club_name: club.data?.name ?? "",
+    timezone: club.data?.timezone ?? "Asia/Tashkent",
+    owner_chat_id: owner.data.owner_chat_id ?? null,
     resources: (resources.data ?? []).map((r) => {
       const s = byResource.get(r.id as string);
       return {

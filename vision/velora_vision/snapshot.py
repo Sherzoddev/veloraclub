@@ -1,4 +1,5 @@
-"""A picture for the message: the frame with table zones and people marked."""
+"""A picture for the message and for the preview: the frame with the table
+zones and the people found."""
 from __future__ import annotations
 
 import cv2
@@ -7,10 +8,13 @@ import numpy as np
 from .config import CameraCfg
 
 
-def render_snapshot(frame, camera: CameraCfg, boxes, counts: dict[str, int]) -> bytes:
+def draw_overlay(frame, camera: CameraCfg, boxes, counts: dict[str, int]):
     img = frame.copy()
     h, w = img.shape[:2]
     for table in camera.tables:
+        if table.felt is not None:  # the cloth, thin and blue
+            fp = np.array([[int(x * w), int(y * h)] for x, y in table.felt], np.int32)
+            cv2.polylines(img, [fp], True, (255, 160, 60), 1)
         if table.polygon is None:
             continue
         pts = np.array([[int(x * w), int(y * h)] for x, y in table.polygon], np.int32)
@@ -23,5 +27,10 @@ def render_snapshot(frame, camera: CameraCfg, boxes, counts: dict[str, int]) -> 
         )
     for b in boxes:
         cv2.rectangle(img, (int(b.x1), int(b.y1)), (int(b.x2), int(b.y2)), (0, 215, 255), 2)
+    return img
+
+
+def render_snapshot(frame, camera: CameraCfg, boxes, counts: dict[str, int]) -> bytes:
+    img = draw_overlay(frame, camera, boxes, counts)
     ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
     return buf.tobytes() if ok else b""
