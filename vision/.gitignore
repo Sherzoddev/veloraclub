@@ -1,0 +1,15 @@
+.env
+config.yaml
+zones.yaml
+snapshots/
+*.log
+venv/
+__pycache__/
+*.pt
+*.mp4
+.pytest_cache/
+!.env.example
+*.onnx
+models/*.onnx
+dist/
+build/

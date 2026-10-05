@@ -1,0 +1,76 @@
+# Builds the camera program (vision/) into a ready Windows folder: unzip,
+# double-click VeloraVision.exe. Runs the tests, packs the program, then runs
+# the packed program's own self-test (models, video encoder and window library
+# really came along). A build of main is also published as the
+# "vision-latest" release.
+name: Velora Vision (Windows)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vision/**'
+      - '.github/workflows/vision-build.yml'
+  pull_request:
+    paths:
+      - 'vision/**'
+      - '.github/workflows/vision-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: vision
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: vision/requirements*.txt
+
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python scripts/get_models.py
+      - run: python -m pytest -q
+
+      - run: python scripts/build.py
+
+      # The packed program checks itself: models load, a clip is encoded.
+      - name: Self-test of the packed program
+        shell: pwsh
+        run: |
+          $env:VELORA_VISION_HOME = Join-Path $PWD "selftest-home"
+          $p = Start-Process -FilePath "dist\VeloraVision\VeloraVision.exe" -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content (Join-Path $env:VELORA_VISION_HOME "selftest.txt")
+          if ($p.ExitCode -ne 0) { throw "self-test failed" }
+
+      - name: Pack
+        shell: pwsh
+        run: |
+          Copy-Item "README_USER.txt" "dist\VeloraVision\README.txt"
+          Copy-Item "THIRD_PARTY_NOTICES.md" "dist\VeloraVision\THIRD_PARTY_NOTICES.md"
+          Compress-Archive -Path "dist\VeloraVision" -DestinationPath "VeloraVision-windows.zip"
+          (Get-Item "VeloraVision-windows.zip").Length / 1MB
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VeloraVision-windows
+          path: vision/VeloraVision-windows.zip
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: vision-latest
+          name: Velora Vision (latest)
+          prerelease: false
+          make_latest: false
+          files: vision/VeloraVision-windows.zip
