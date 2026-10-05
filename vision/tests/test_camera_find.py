@@ -55,7 +55,14 @@ def test_scan_finds_hosts_with_the_port_open():
     server.bind(("127.0.0.1", 0))
     server.listen(5)
     port = server.getsockname()[1]
-    threading.Thread(target=lambda: [server.accept() for _ in range(3)], daemon=True).start()
+    def accept_a_few():
+        try:
+            for _ in range(3):
+                server.accept()
+        except OSError:
+            pass  # the socket was closed at the end of the test
+
+    threading.Thread(target=accept_a_few, daemon=True).start()
     try:
         found = cf.scan_rtsp(port=port, timeout=0.3, hosts=["127.0.0.1", "127.0.0.9"])
         assert "127.0.0.1" in found

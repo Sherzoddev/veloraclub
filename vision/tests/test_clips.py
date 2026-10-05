@@ -32,13 +32,24 @@ def scene(positions):
 
 # ---- encoder ---------------------------------------------------------------
 @pytest.mark.skipif(encoder.ffmpeg_exe() is None, reason="no ffmpeg")
-def test_encoder_makes_h264_mp4(tmp_path):
+def test_encoder_makes_a_playable_h264_mp4(tmp_path):
     out = tmp_path / "c.mp4"
     assert encoder.encode_mp4(jpeg(n=30), 15, out)
+    # It must be readable again, with the frames and the size we put in.
+    cap = cv2.VideoCapture(str(out))
+    try:
+        assert cap.isOpened()
+        assert (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))) == (W, H)
+        frames = 0
+        while cap.read()[0]:
+            frames += 1
+    finally:
+        cap.release()
+    assert 28 <= frames <= 32
+    # And it is H.264, which is what Telegram plays inline.
     info = subprocess.run([encoder.ffmpeg_exe(), "-hide_banner", "-i", str(out)],
-                          capture_output=True, text=True).stderr
-    assert "Video: h264" in info and "yuv420p" in info
-    assert "1.0" in info.split("Duration:")[1][:12] or "00:00:02" in info  # 30 frames at 15 fps
+                          capture_output=True, text=True, errors="replace").stderr
+    assert "h264" in info.lower() and "yuv420p" in info, info
 
 
 def test_encoder_refuses_nothing_to_encode(tmp_path):
