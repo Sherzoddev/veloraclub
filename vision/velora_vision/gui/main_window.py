@@ -18,7 +18,7 @@ from ..sessions import SessionsError
 from ..settings import CameraSettings, Settings
 from .camera_dialog import CameraDialog
 from .common import (FONT_BIG, FONT_BOLD, GREEN, GREY, ORANGE, RED, Background,
-                     apply_style, hint)
+                     apply_style, clipboard_text, hint, install_clipboard_support)
 from .preview import PreviewWindow
 from .zone_editor import ZoneEditor
 
@@ -42,6 +42,7 @@ class MainWindow:
         root.minsize(780, 660)
         root.geometry("840x720")
         apply_style(root)
+        install_clipboard_support(root)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._menu()
 
@@ -137,6 +138,7 @@ class MainWindow:
         self.token = tk.StringVar(value=self.settings.bot_token)
         self.token_entry = ttk.Entry(row, textvariable=self.token, width=58, show="•")
         self.token_entry.pack(side="left")
+        ttk.Button(row, text="Вставить", command=self._paste_token).pack(side="left", padx=(8, 0))
         self.show_token = tk.BooleanVar(value=False)
         ttk.Checkbutton(row, text="показать", variable=self.show_token,
                         command=lambda: self.token_entry.config(
@@ -188,6 +190,15 @@ class MainWindow:
         self.chan_btn.config(state="normal")
         ok = error is None and "отправлено" in str(text)
         self.chan_result.config(text=str(error or text), foreground=GREEN if ok else RED)
+
+    def _paste_token(self) -> None:
+        """A button, for people who don't know the keys (or the layout is off)."""
+        text = clipboard_text(self.root)
+        if not text:
+            return self._bot_msg("В буфере обмена ничего нет. Скопируйте токен (в Telegram: "
+                                 "правая кнопка мыши на токене → «Копировать»).", RED)
+        self.token.set(text)
+        self._bot_msg("Токен вставлен. Нажмите «Проверить подключение».", GREY)
 
     def _check_bot(self) -> None:
         self._collect()

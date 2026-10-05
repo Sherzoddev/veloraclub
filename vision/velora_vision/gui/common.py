@@ -71,6 +71,83 @@ class Background:
             pass
 
 
+_COPY_PASTE_KEYS = {86: "<<Paste>>", 67: "<<Copy>>", 88: "<<Cut>>"}  # V, C, X on Windows
+_ENTRY_CLASSES = ("TEntry", "Entry", "TCombobox", "TSpinbox", "Spinbox", "Text")
+
+
+def install_clipboard_support(root: tk.Misc, windows: bool | None = None):
+    """Copy and paste in every input field, whatever the keyboard layout.
+
+    Tk binds Ctrl+V to the letter "v", so with a Russian layout (Ctrl sends
+    "м") nothing is pasted. On Windows the key code is the same in every
+    layout, so it is used there. A right-click menu is added too, since
+    people look for it."""
+    win = sys.platform == "win32" if windows is None else windows
+
+    def select_all(w) -> None:
+        if isinstance(w, tk.Text):
+            w.tag_add("sel", "1.0", "end")
+        else:
+            w.select_range(0, "end")
+            w.icursor("end")
+
+    def on_ctrl_key(event):
+        # With a Latin layout Tk's own binding does it: don't paste twice.
+        if not win or event.keysym.lower() in ("v", "c", "x", "a"):
+            return None
+        w = event.widget
+        if event.keycode == 65:  # A
+            select_all(w)
+            return "break"
+        action = _COPY_PASTE_KEYS.get(event.keycode)
+        if action:
+            w.event_generate(action)
+            return "break"
+        return None
+
+    menu = tk.Menu(root, tearoff=0)
+    target: dict = {}
+
+    def run(action: str) -> None:
+        w = target.get("w")
+        if w is None:
+            return
+        w.focus_force()
+        if action == "all":
+            select_all(w)
+        else:
+            w.event_generate(action)
+
+    for label, action in (("Вырезать", "<<Cut>>"), ("Копировать", "<<Copy>>"),
+                          ("Вставить", "<<Paste>>"), ("Выделить всё", "all")):
+        menu.add_command(label=label, command=lambda a=action: run(a))
+
+    def on_right_click(event):
+        w = event.widget
+        try:
+            if str(w.cget("state")) == "disabled":
+                return None
+        except tk.TclError:
+            pass
+        target["w"] = w
+        w.focus_set()
+        menu.tk_popup(event.x_root, event.y_root)
+        return "break"
+
+    for cls in _ENTRY_CLASSES:
+        root.bind_class(cls, "<Control-KeyPress>", on_ctrl_key, add="+")
+        root.bind_class(cls, "<Button-3>", on_right_click, add="+")
+    return on_ctrl_key  # returned for the tests
+
+
+def clipboard_text(widget: tk.Misc) -> str:
+    """What is on the clipboard (one line, trimmed), or "" if nothing."""
+    try:
+        return " ".join(widget.clipboard_get().split())
+    except tk.TclError:
+        return ""
+
+
 def photo_from_frame(frame, max_w: int, max_h: int):
     """A Tk image of an OpenCV frame, scaled to fit; also returns the scale."""
     h, w = frame.shape[:2]
