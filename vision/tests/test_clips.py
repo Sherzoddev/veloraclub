@@ -49,7 +49,23 @@ def test_encoder_makes_a_playable_h264_mp4(tmp_path):
     # And it is H.264, which is what Telegram plays inline.
     info = subprocess.run([encoder.ffmpeg_exe(), "-hide_banner", "-i", str(out)],
                           capture_output=True, text=True, errors="replace").stderr
-    assert "h264" in info.lower() and "yuv420p" in info, info
+    assert "h264" in info.lower() and "yuv420p" in info and "yuvj" not in info, info
+
+
+@pytest.mark.skipif(encoder.ffmpeg_exe() is None, reason="no ffmpeg")
+def test_encoder_keeps_the_colours(tmp_path):
+    # A full-range/limited-range mix-up washes the colours out.
+    colour = (40, 150, 60)
+    out = tmp_path / "c.mp4"
+    assert encoder.encode_mp4(jpeg(color=colour, n=15), 15, out)
+    cap = cv2.VideoCapture(str(out))
+    try:
+        ok, frame = cap.read()
+    finally:
+        cap.release()
+    assert ok
+    mean = frame.reshape(-1, 3).mean(axis=0)
+    assert all(abs(mean[i] - colour[i]) < 10 for i in range(3)), mean
 
 
 def test_encoder_refuses_nothing_to_encode(tmp_path):

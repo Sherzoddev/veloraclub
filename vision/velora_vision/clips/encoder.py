@@ -44,9 +44,11 @@ def encode_mp4(frames: list[bytes], fps: float, out: Path) -> bool:
         cmd = [
             exe, "-hide_banner", "-loglevel", "error", "-y",
             "-f", "image2pipe", "-framerate", f"{fps:g}", "-vcodec", "mjpeg", "-i", "-",
-            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            # JPEG pictures are full-range; players expect the usual limited
+            # range, or the colours look washed out. Even sides for H.264.
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:in_range=pc:out_range=tv,format=yuv420p",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "27",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(out),
+            "-color_range", "tv", "-movflags", "+faststart", "-an", str(out),
         ]
         try:
             proc = subprocess.run(
