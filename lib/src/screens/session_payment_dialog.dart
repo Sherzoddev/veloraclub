@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../i18n.dart';
+import '../payment_split.dart';
 import '../services/printer_service.dart';
 import '../services/receipt_builder.dart';
 import '../state/club_controller.dart';
@@ -76,6 +79,10 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   String? methodId;
   final amountCtrl = TextEditingController();
   bool paying = false;
+  // Mixed payment: one check paid with several methods (part cash, part
+  // card, part transfer). One amount field per method, by method id.
+  bool mixed = false;
+  final Map<String, TextEditingController> _splitCtrls = {};
   // Tracks whether the cashier has actually typed into the amount field --
   // as opposed to just it being non-empty, which `amountCtrl.clear()` calls
   // scattered at a few (but not all) mutation points relied on. A discount
@@ -107,8 +114,17 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   @override
   void dispose() {
     amountCtrl.dispose();
+    for (final c in _splitCtrls.values) {
+      c.dispose();
+    }
     super.dispose();
   }
+
+  TextEditingController _split(String methodId) =>
+      _splitCtrls.putIfAbsent(methodId, () => TextEditingController());
+
+  Map<String, String> _splitTexts() =>
+      {for (final e in _splitCtrls.entries) e.key: e.value.text};
 
   @override
   Widget build(BuildContext context) => Dialog(
@@ -137,7 +153,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                   .where((i) => i['kind'] == 'PRODUCT')
                   .toList();
 
-              return Padding(
+              return SingleChildScrollView(
+                  child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -314,8 +331,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                       _line('Chegirma', '-${money(order['discount_amount'])}',
                           muted: true),
                     const SizedBox(height: 8),
-                    Row(children: [
-                      TextButton.icon(
+                    LayoutBuilder(builder: (context, c) {
+                      final discountButton = TextButton.icon(
                         onPressed: data.discounts.isEmpty
                             ? null
                             : () => _chooseDiscount(context, data.discounts),
@@ -327,64 +344,121 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                         ),
                         icon: const Icon(Icons.percent_rounded, size: 16),
                         label: const Text('Chegirma'),
-                      ),
-                      if (order['customer_id'] != null) ...[
-                        const SizedBox(width: 14),
-                        TextButton.icon(
-                          onPressed:
-                              ((order['customer_bonus_points'] as num?) ?? 0) <=
-                                      0
-                                  ? null
-                                  : () => _redeemPoints(context, order),
-                          style: TextButton.styleFrom(
-                            foregroundColor: VColors.blue,
-                            padding: EdgeInsets.zero,
-                            minimumSize: const Size(0, 32),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          icon: const Icon(Icons.toll_outlined, size: 16),
-                          label: Text(
-                              'Ball (${order['customer_bonus_points'] ?? 0})'),
-                        ),
-                      ],
-                      const Spacer(),
-                      const Text('JAMI',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w900, fontSize: 17)),
-                      const SizedBox(width: 10),
-                      Text(money(total),
-                          style: TextStyle(
-                              color: VColors.green,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 24)),
-                    ]),
+                      );
+                      final pointsButton = order['customer_id'] == null
+                          ? null
+                          : TextButton.icon(
+                              onPressed:
+                                  ((order['customer_bonus_points'] as num?) ??
+                                              0) <=
+                                          0
+                                      ? null
+                                      : () => _redeemPoints(context, order),
+                              style: TextButton.styleFrom(
+                                foregroundColor: VColors.blue,
+                                padding: EdgeInsets.zero,
+                                minimumSize: const Size(0, 32),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              icon: const Icon(Icons.toll_outlined, size: 16),
+                              label: Text(
+                                  'Ball (${order['customer_bonus_points'] ?? 0})'),
+                            );
+                      final totalRow = Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('JAMI',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w900, fontSize: 17)),
+                          const SizedBox(width: 10),
+                          Text(money(total),
+                              style: TextStyle(
+                                  color: VColors.green,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 24)),
+                        ],
+                      );
+                      // On a phone the buttons and the total don't fit in one
+                      // line: the total goes under them.
+                      if (c.maxWidth >= 440) {
+                        return Row(children: [
+                          discountButton,
+                          if (pointsButton != null) ...[
+                            const SizedBox(width: 14),
+                            pointsButton,
+                          ],
+                          const Spacer(),
+                          totalRow,
+                        ]);
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Wrap(spacing: 14, children: [
+                            discountButton,
+                            if (pointsButton != null) pointsButton,
+                          ]),
+                          const SizedBox(height: 6),
+                          Align(
+                              alignment: Alignment.centerRight,
+                              child: totalRow),
+                        ],
+                      );
+                    }),
                     const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      isExpanded: true,
-                      initialValue: methodId,
-                      decoration:
-                          const InputDecoration(labelText: 'To\'lov usuli'),
-                      items: data.methods
-                          .map((m) => DropdownMenuItem(
-                                value: '${m['id']}',
-                                child: Text('${m['name']}'),
-                              ))
-                          .toList(),
-                      onChanged: (v) => setState(() => methodId = v),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: amountCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                          labelText: 'Summa', suffixText: 'so\'m'),
-                      onChanged: (_) => _amountEdited = true,
-                    ),
+                    if (total > 0) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: SegmentedButton<bool>(
+                          showSelectedIcon: false,
+                          segments: [
+                            ButtonSegment(
+                                value: false, label: Text(tr('Bitta usul'))),
+                            ButtonSegment(
+                                value: true,
+                                label: Text(tr('Aralash to\'lov'))),
+                          ],
+                          selected: {mixed},
+                          onSelectionChanged: (v) =>
+                              setState(() => mixed = v.first),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (mixed && total > 0)
+                      _mixedPanel(data, total)
+                    else ...[
+                      DropdownButtonFormField<String>(
+                        isExpanded: true,
+                        initialValue: methodId,
+                        decoration:
+                            const InputDecoration(labelText: 'To\'lov usuli'),
+                        items: data.methods
+                            .map((m) => DropdownMenuItem(
+                                  value: '${m['id']}',
+                                  child: Text('${m['name']}'),
+                                ))
+                            .toList(),
+                        onChanged: (v) => setState(() => methodId = v),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: amountCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                            labelText: 'Summa', suffixText: 'so\'m'),
+                        onChanged: (_) => _amountEdited = true,
+                      ),
+                    ],
                     const SizedBox(height: 18),
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton(
-                        onPressed: (paying || methodId == null)
+                        onPressed: (paying ||
+                                (mixed && total > 0
+                                    ? !PaymentSplit.isComplete(
+                                        total, _splitTexts())
+                                    : methodId == null))
                             ? null
                             : () => _pay(context, total, data),
                         child: paying
@@ -393,17 +467,88 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                                 child: CircularProgressIndicator(
                                     strokeWidth: 2, color: Colors.white),
                               )
-                            : Text(
-                                'To\'lash — ${money(int.tryParse(amountCtrl.text) ?? total)}'),
+                            : Text(mixed
+                                ? 'To\'lash — ${money(total)}'
+                                : 'To\'lash — ${money(int.tryParse(amountCtrl.text) ?? total)}'),
                       ),
                     ),
                   ],
                 ),
-              );
+              ));
             },
           ),
         ),
       );
+
+  /// One amount field per payment method, and a line that says whether the
+  /// amounts add up to the total.
+  Widget _mixedPanel(_Data data, int total) {
+    final texts = _splitTexts();
+    final left = PaymentSplit.remaining(total, texts.values);
+    final Color color = left == 0
+        ? VColors.green
+        : left > 0
+            ? VColors.orange
+            : VColors.red;
+    final String summary = left == 0
+        ? tr('Summa mos')
+        : left > 0
+            ? '${tr('Qoldi')}: ${money(left)}'
+            : '${tr('Ortiqcha')}: ${money(-left)}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(builder: (context, c) {
+          final twoColumns = c.maxWidth >= 400;
+          final width = twoColumns ? (c.maxWidth - 12) / 2 : c.maxWidth;
+          return Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            children: [
+              for (final m in data.methods)
+                SizedBox(
+                  width: width,
+                  child: TextField(
+                    controller: _split('${m['id']}'),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      labelText: '${m['name']}',
+                      isDense: true,
+                      suffixIcon: IconButton(
+                        tooltip: tr('Qoldiqni qo\'yish'),
+                        icon: const Icon(
+                            Icons.keyboard_double_arrow_down_rounded,
+                            size: 18),
+                        onPressed: () {
+                          final id = '${m['id']}';
+                          _split(id).text =
+                              '${PaymentSplit.fillFor(id, total, _splitTexts())}';
+                          setState(() {});
+                        },
+                      ),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+            ],
+          );
+        }),
+        const SizedBox(height: 10),
+        Row(children: [
+          Icon(
+              left == 0
+                  ? Icons.check_circle_rounded
+                  : Icons.info_outline_rounded,
+              size: 18,
+              color: color),
+          const SizedBox(width: 6),
+          Text(summary,
+              style: TextStyle(color: color, fontWeight: FontWeight.w800)),
+        ]),
+      ],
+    );
+  }
 
   Widget _line(String label, String value, {bool muted = false}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 5),
@@ -467,7 +612,9 @@ class _PaymentDialogState extends State<_PaymentDialog> {
       await widget.controller.repository
           .applyDiscount(widget.orderId, discountId: '${discount['id']}');
       _amountEdited = false;
-      setState(() => _future = _load());
+      setState(() {
+        _future = _load();
+      });
     } catch (e) {
       if (context.mounted) showError(context, e);
     }
@@ -515,7 +662,9 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     try {
       await widget.controller.repository.redeemPoints(widget.orderId, points);
       _amountEdited = false;
-      setState(() => _future = _load());
+      setState(() {
+        _future = _load();
+      });
     } catch (e) {
       if (context.mounted) showError(context, e);
     }
@@ -525,7 +674,9 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     try {
       await widget.controller.repository.setOrderCustomer(widget.orderId, id);
       _amountEdited = false;
-      setState(() => _future = _load());
+      setState(() {
+        _future = _load();
+      });
     } catch (e) {
       if (mounted) showError(context, e);
     }
@@ -539,12 +690,44 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     if (paying) return;
     setState(() => paying = true);
     try {
-      final amount = int.tryParse(amountCtrl.text) ?? total;
-      final method = data.methods.firstWhere((m) => '${m['id']}' == methodId,
-          orElse: () => const <String, dynamic>{});
-      await widget.controller.repository
-          .payOrder(widget.orderId, methodId!, amount);
-      final receipt = await _buildReceipt(data, amount, method);
+      final int paidAmount;
+      final String methodName;
+      if (mixed && total > 0) {
+        final texts = _splitTexts();
+        if (!PaymentSplit.isComplete(total, texts)) {
+          throw '${tr('Qoldi')}: ${money(PaymentSplit.remaining(total, texts.values))}';
+        }
+        final lines = PaymentSplit.lines(data.methods, texts);
+        final result = await widget.controller.repository.payOrderSplit(
+            widget.orderId,
+            [for (final l in lines) (methodId: l.methodId, amount: l.amount)]);
+        // The server has the last word on the total: if the check changed
+        // under us (another till added an item) and is not fully paid, say
+        // so instead of closing it as paid.
+        final order = (result['order'] as Map?)?['order'];
+        if (order is Map &&
+            order['status'] != null &&
+            order['status'] != 'COMPLETED') {
+          final left = ((order['total_amount'] as num?) ?? 0) -
+              ((order['paid_amount'] as num?) ?? 0);
+          widget.controller.refresh();
+          setState(() {
+            _future = _load();
+          });
+          throw '${tr('Chek yopilmadi')}: ${tr('Qoldi')} ${money(left)}';
+        }
+        paidAmount = total;
+        methodName = PaymentSplit.label(lines, money);
+      } else {
+        final amount = int.tryParse(amountCtrl.text) ?? total;
+        final method = data.methods.firstWhere((m) => '${m['id']}' == methodId,
+            orElse: () => const <String, dynamic>{});
+        await widget.controller.repository
+            .payOrder(widget.orderId, methodId!, amount);
+        paidAmount = amount;
+        methodName = '${method['name'] ?? ''}';
+      }
+      final receipt = await _buildReceipt(data, paidAmount, methodName);
       // Close the payment sheet the instant the charge succeeds — before
       // showing anything else — so there is no window where a stale "To'lash"
       // button is still on screen and tappable, which was firing a second
@@ -566,7 +749,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   }
 
   Future<_Receipt?> _buildReceipt(
-      _Data data, int amount, Map<String, dynamic> method) async {
+      _Data data, int amount, String methodName) async {
     try {
       final order = data.order;
       final items = ((order['order_items'] as List?) ?? [])
@@ -608,7 +791,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
         subtotal: subtotal,
         discount: discount,
         total: amount,
-        paymentMethodName: '${method['name'] ?? ''}',
+        paymentMethodName: methodName,
         sessionStartedAt: sessionStartedAt,
         sessionEndedAt: sessionEndedAt,
       );

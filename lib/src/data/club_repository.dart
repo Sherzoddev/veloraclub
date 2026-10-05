@@ -457,6 +457,19 @@ class ClubRepository {
         'p_note': null,
       }));
 
+  /// One check paid with several methods at once (mixed payment): the server
+  /// takes all the lines in one go, so either all of them are recorded or none.
+  Future<Map<String, dynamic>> payOrderSplit(
+          String orderId, List<({String methodId, int amount})> lines) async =>
+      rowMap(await client.rpc('create_payment', params: {
+        'p_order_id': orderId,
+        'p_payments': [
+          for (final l in lines)
+            {'payment_method_id': l.methodId, 'amount': l.amount}
+        ],
+        'p_note': null,
+      }));
+
   Future<void> relayCommand(String resourceId, bool on) => client.rpc(
         'relay_manual_command',
         params: {

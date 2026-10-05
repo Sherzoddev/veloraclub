@@ -38,6 +38,13 @@ String tr(String uz) {
 }
 
 const Map<String, String> _ru = {
+  // Mixed payment
+  'Bitta usul': 'Один способ',
+  'Aralash to\'lov': 'Смешанная оплата',
+  'Qoldi': 'Осталось',
+  'Summa mos': 'Сумма сходится',
+  'Qoldiqni qo\'yish': 'Подставить остаток',
+  'Chek yopilmadi': 'Чек не закрыт',
   // Sidebar navigation
   'Menyu': 'Меню',
   // Product categories
