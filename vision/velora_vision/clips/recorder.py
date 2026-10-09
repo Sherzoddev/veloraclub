@@ -27,14 +27,16 @@ log = logging.getLogger("velora_vision.clips")
 # mode -> (lowest score that is sent, seconds between clips of one table,
 # clips per hour for the whole club). First guesses, to be tuned on real play.
 MODES = {
-    "pot": (0.0, 20.0, 60),      # only shots after which a ball went into a pocket
+    "pot_bright": (10.0, 30.0, 30),  # a ball potted AND a striking shot (the default)
+    "pot": (0.0, 20.0, 60),      # every shot after which a ball went into a pocket
     "learn": (0.0, 90.0, 40),    # every shot: collect examples to learn from
     "bright": (5.0, 180.0, 20),  # several balls at once
     "rare": (8.0, 300.0, 10),    # only the most striking
 }
 
-PRE_ROLL = 4.0
+PRE_ROLL = 5.0
 POST_ROLL = 3.0
+POST_POT_ROLL = 5.0  # after a ball goes in: the ball dropping, the others rolling on, the reaction
 CLIP_WIDTH = 640
 
 
@@ -66,7 +68,7 @@ class ClipRecorder(threading.Thread):
         self.reader = reader
         self.sender = sender
         self._stop_event = stop
-        self.mode = mode if mode in MODES else "pot"
+        self.mode = mode if mode in MODES else "pot_bright"
         self.min_score, self.cooldown, self.per_hour = MODES[self.mode]
         self.fps = fps
         self.tz = ZoneInfo(timezone)
@@ -77,7 +79,7 @@ class ClipRecorder(threading.Thread):
             _TableWatch(t.resource, BallMotion(t.felt))
             for t in camera.tables if t.felt is not None
         ]
-        self.keep = PRE_ROLL + 20.0 + POST_ROLL + 2.0  # seconds of picture kept in memory
+        self.keep = PRE_ROLL + 20.0 + POST_POT_ROLL + 4.0  # seconds of picture kept in memory
         self.ring: deque[tuple[float, bytes]] = deque()
         self._pending: list[tuple[_TableWatch, Shot, float]] = []
         self._sent_times: deque[float] = deque()
@@ -111,9 +113,13 @@ class ClipRecorder(threading.Thread):
     def _shot_finished(self, watch: _TableWatch, shot: Shot, now: float) -> None:
         if not self.table_busy(watch.name):
             return  # balls "moving" with nobody at the table: a reflection
-        pots = watch.pots.pots_between(shot.start - 0.5, shot.end + 1.5) if watch.pots else 0
-        shot = replace(shot, pots=pots)
-        if self.mode == "pot" and pots == 0:
+        window = (shot.start - 0.5, shot.end + 1.5)
+        pots = watch.pots.pots_between(*window) if watch.pots else 0
+        speed = watch.pots.fastest_between(*window) if watch.pots else 0.0
+        shot = replace(shot, pots=pots, pot_speed=speed)
+        log.info("%s: удар %.0f–%.0f с, шаров в движении %d, забито %d, оценка %.1f",
+                 watch.name, shot.start % 1000, shot.end % 1000, shot.peak, pots, shot.score)
+        if self.mode in ("pot", "pot_bright") and pots == 0:
             log.debug("%s: удар без забитого шара, не отправляю", watch.name)
             return
         if shot.score < self.min_score:
@@ -127,7 +133,10 @@ class ClipRecorder(threading.Thread):
             return
         watch.last_sent = now
         self._sent_times.append(now)
-        self._pending.append((watch, shot, shot.end + POST_ROLL))
+        # The clip runs on past the moment the ball drops: the pot is the point.
+        last_pot = watch.pots.last_pot_between(*window) if watch.pots and pots else shot.end
+        due = max(shot.end, last_pot) + (POST_POT_ROLL if pots else POST_ROLL)
+        self._pending.append((watch, shot, due))
 
     def _flush_due(self, now: float) -> None:
         still = []
@@ -135,7 +144,7 @@ class ClipRecorder(threading.Thread):
             if now < due:
                 still.append((watch, shot, due))
                 continue
-            taken = [(t, j) for t, j in self.ring if shot.start - PRE_ROLL <= t <= shot.end + POST_ROLL]
+            taken = [(t, j) for t, j in self.ring if shot.start - PRE_ROLL <= t <= due]
             if len(taken) < 5:
                 continue
             frames = [j for _, j in taken]
@@ -144,7 +153,7 @@ class ClipRecorder(threading.Thread):
             span = taken[-1][0] - taken[0][0]
             fps = min(30.0, max(4.0, (len(taken) - 1) / span)) if span > 0 else self.fps
             when = datetime.fromtimestamp(shot.end, self.tz).strftime("%H:%M")
-            head = (f"🎯 {watch.name}: шар в лузу, {when}" if shot.pots
+            head = (f"🎯 {watch.name}: забито шаров {shot.pots}, {when}" if shot.pots
                     else f"🎱 {watch.name}: удар в {when}")
             caption = (f"{head}\n"
                        f"шаров в движении: {shot.peak}, длится {span:.0f} с, "

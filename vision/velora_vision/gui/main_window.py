@@ -410,7 +410,8 @@ class MainWindow:
         ttk.Checkbutton(t, text="Записывать удары и отправлять в канал (нужно нарисовать сукно стола)",
                         variable=self.clips_enabled, command=self._changed).pack(anchor="w", padx=28, pady=2)
         self.clips_mode = tk.StringVar(value=self.settings.clips_mode)
-        for value, text in (("pot", "Только когда шар забит в лузу (рекомендуется)"),
+        for value, text in (("pot_bright", "Только яркие удары, где шар забит в лузу (рекомендуется)"),
+                            ("pot", "Любой удар, где шар забит в лузу"),
                             ("bright", "Только яркие: когда двигаются несколько шаров сразу"),
                             ("rare", "Только самые яркие (например, разбив пирамиды)")):
             ttk.Radiobutton(t, text=text, value=value, variable=self.clips_mode,

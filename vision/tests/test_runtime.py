@@ -73,6 +73,7 @@ def env(tmp_path, monkeypatch):
     s.zones = {"c1": {"1 Stol": PEOPLE}}
     s.felt_zones = {"c1": {"1 Stol": FELT}}
     s.clips_chat_id = "-100777"
+    s.clips_mode = "learn"  # this scene is about the plumbing, not about what is striking
     s.unrecorded_minutes = 0.05  # 3 s
     s.min_people_play = 1
     ctrl = Controller(lambda: s, tmp_path / "snaps", detector_factory=lambda acc: FakeDetector(),

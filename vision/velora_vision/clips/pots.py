@@ -51,7 +51,7 @@ class PotTracker:
         self,
         polygon: Sequence[Point],
         aspect: float = 1.0,
-        pocket_radius: float = 0.12,   # in units of sqrt(cloth area)
+        pocket_radius: float = 0.08,   # in units of sqrt(cloth area)
         max_jump: float = 0.25,        # how far a ball may move between two looks
         vanish_looks: int = 2,         # looks without the ball = it is gone
         min_speed: float = 0.12,       # cloth units per second at the end
@@ -66,10 +66,8 @@ class PotTracker:
         self.min_speed = min_speed * self.unit
         self._tracks: list[_Track] = []
         self.pots: list[float] = []  # times of potted balls (the latest ones)
+        self.pot_speeds: list[float] = []  # how fast each of them was, in cloth units per second
         self.total = 0  # all balls seen going in since the start
-
-    def _near_pocket(self, x: float, y: float) -> bool:
-        return any(math.dist((x, y), p) <= self.pocket_radius for p in self.pockets)
 
     def update(self, t: float, blobs: Sequence[Point]) -> int:
         """One look. Returns how many balls were seen going in just now."""
@@ -102,32 +100,56 @@ class PotTracker:
             if tr.missed < self.vanish_looks:
                 alive.append(tr)
                 continue
-            if self._went_in(tr):
+            speed = self._went_in(tr)
+            if speed:
                 potted += 1
                 self.total += 1
                 self.pots.append(tr.pts[-1][0])
+                self.pot_speeds.append(speed / self.unit)
         self._tracks = alive
         for bi in free:
             if bi not in used_b:
                 self._tracks.append(_Track([(t, *pts[bi])]))
         if len(self.pots) > 50:
             self.pots = self.pots[-50:]
+            self.pot_speeds = self.pot_speeds[-50:]
         return potted
 
-    def _went_in(self, tr: _Track) -> bool:
-        if len(tr.pts) < 2:
-            return False
+    def _went_in(self, tr: _Track) -> float:
+        """The speed of the ball (cloth units per second) if it went into a
+        pocket, else 0.0."""
+        if len(tr.pts) < 3:
+            return 0.0  # a flash of one or two looks is not a ball on its way
         t1, x1, y1 = tr.pts[-1]
         t0, x0, y0 = tr.pts[-2]
         if t1 - t0 <= 0:
-            return False
+            return 0.0
         speed = math.dist((x0, y0), (x1, y1)) / (t1 - t0)
         if speed < self.min_speed:
-            return False
+            return 0.0
         # A fast ball covers a lot between two looks: it may have been last
         # seen well before the pocket it went into, so look where it was heading.
         ahead = (x1 + (x1 - x0), y1 + (y1 - y0))
-        return self._near_pocket(x1, y1) or self._near_pocket(*ahead)
+        _, xa, ya = tr.pts[-3]
+        was = self._pocket_distance(xa, ya)
+        # It has to be coming closer to the pocket, not going past or away
+        # (a ball bouncing off the cushion beside a pocket).
+        if self._pocket_distance(x1, y1) > was:
+            return 0.0
+        if self._pocket_distance(x1, y1) <= self.pocket_radius or self._pocket_distance(*ahead) <= self.pocket_radius:
+            return speed
+        return 0.0
+
+    def _pocket_distance(self, x: float, y: float) -> float:
+        return min(math.dist((x, y), p) for p in self.pockets)
+
+    def fastest_between(self, start: float, end: float) -> float:
+        """Speed of the fastest ball potted in this time span (0 if none)."""
+        return max((s for t, s in zip(self.pots, self.pot_speeds) if start <= t <= end), default=0.0)
+
+    def last_pot_between(self, start: float, end: float) -> float:
+        """When the last ball went in within this span (or `start` if none)."""
+        return max((t for t in self.pots if start <= t <= end), default=start)
 
     def pots_between(self, start: float, end: float) -> int:
         return sum(1 for p in self.pots if start <= p <= end)

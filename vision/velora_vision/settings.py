@@ -15,6 +15,7 @@ from .tracker import Rules
 
 DEFAULT_SUPABASE_URL = "https://aatriitpqpwhdcehjzip.supabase.co"
 FILE_NAME = "settings.json"
+SETTINGS_VERSION = 2
 
 
 @dataclass
@@ -44,7 +45,7 @@ class Settings:
     accuracy: str = "accurate"  # "accurate" | "fast"
     clips_enabled: bool = True  # record striking shots
     clips_chat_id: str = ""  # channel (-100... or @name) for the clips
-    clips_mode: str = "pot"  # "pot" | "learn" | "bright" | "rare"
+    clips_mode: str = "pot_bright"  # "pot_bright" | "pot" | "bright" | "rare"
     clips_to_owner: bool = False  # also send the clips to the owner's chat
     autostart: bool = False  # start with Windows
     run_on_open: bool = True  # begin watching as soon as the program opens
@@ -107,6 +108,7 @@ class Settings:
     # -- file -------------------------------------------------------------
     def to_json(self) -> dict:
         return {
+            "version": SETTINGS_VERSION,
             "bot_token": secrets_store.protect(self.bot_token),
             "extra_chat_ids": self.extra_chat_ids,
             "supabase_url": self.supabase_url,
@@ -162,9 +164,12 @@ class Settings:
         d.clips_enabled = bool(data.get("clips_enabled", True))
         d.clips_chat_id = str(data.get("clips_chat_id", ""))
         mode = data.get("clips_mode")
-        # "learn" (every shot) was the first default, kept to collect examples;
-        # people asked for the shots with a ball potted only, so it moves there.
-        d.clips_mode = mode if mode in ("pot", "bright", "rare") else "pot"
+        # Settings saved before version 2 chose "every shot" or "every potted
+        # ball"; people asked for striking shots with a ball potted only, so
+        # they move there once. A later choice is kept.
+        if int(data.get("version") or 1) < SETTINGS_VERSION and mode in (None, "learn", "pot"):
+            mode = "pot_bright"
+        d.clips_mode = mode if mode in ("pot_bright", "pot", "bright", "rare") else "pot_bright"
         d.clips_to_owner = bool(data.get("clips_to_owner", False))
         d.min_people_play = int(data.get("min_people_play", d.min_people_play))
         d.unrecorded_minutes = float(data.get("unrecorded_minutes", d.unrecorded_minutes))
