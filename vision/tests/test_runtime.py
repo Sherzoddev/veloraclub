@@ -73,6 +73,7 @@ def env(tmp_path, monkeypatch):
     s.zones = {"c1": {"1 Stol": PEOPLE}}
     s.felt_zones = {"c1": {"1 Stol": FELT}}
     s.clips_chat_id = "-100777"
+    s.clips_mode = "learn"  # this scene is about the plumbing, not about what is striking
     s.unrecorded_minutes = 0.05  # 3 s
     s.min_people_play = 1
     ctrl = Controller(lambda: s, tmp_path / "snaps", detector_factory=lambda acc: FakeDetector(),
@@ -106,7 +107,7 @@ def test_alert_and_clip_both_go_out_and_the_clip_leaves_no_trace(env):
     clip = [e for e in sent if e["method"] == "sendVideo"][0]
     assert clip["chat"] == "-100777"          # the channel, not the owner
     assert clip["video_exists"] and clip["video_bytes"] > 1000
-    assert "1 Stol" in clip["text"] and ("удар" in clip["text"] or "лузу" in clip["text"])
+    assert "1 Stol" in clip["text"] and ("удар" in clip["text"] or "забито" in clip["text"])
     assert list((tmp_path / "tmp").glob("*")) == []   # deleted right after sending
 
 

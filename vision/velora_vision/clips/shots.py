@@ -25,7 +25,7 @@ class Shot:
     def score(self) -> float:
         """Crude "how striking": many balls at once, and long play. To be
         replaced by a trained model once there are rated clips."""
-        return self.peak + 0.5 * self.seconds + 4.0 * self.pots
+        return self.peak + 0.5 * self.seconds + 5.0 * self.pots
 
 
 class ShotDetector:

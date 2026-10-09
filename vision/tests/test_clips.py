@@ -189,8 +189,8 @@ def test_one_shot_makes_one_clip_with_a_lead_in():
     assert len(sender.jobs) == 1
     job = sender.jobs[0]
     assert "1 Stol" in job.caption and "шаров в движении" in job.caption
-    # 4 s before + the shot itself (3 s) + 3 s after
-    assert 15 * 9 < len(job.frames) < 15 * 12
+    # 5 s before + the shot itself (3 s) + 3 to 5 s after
+    assert 15 * 9 < len(job.frames) < 15 * 14
     assert rec.shots_seen == 1
 
 
