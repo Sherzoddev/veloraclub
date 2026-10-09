@@ -15,6 +15,7 @@ class Shot:
     start: float
     end: float
     peak: int  # most balls moving at the same moment
+    pots: int = 0  # balls that went into a pocket during the shot
 
     @property
     def seconds(self) -> float:
@@ -24,7 +25,7 @@ class Shot:
     def score(self) -> float:
         """Crude "how striking": many balls at once, and long play. To be
         replaced by a trained model once there are rated clips."""
-        return self.peak + 0.5 * self.seconds
+        return self.peak + 0.5 * self.seconds + 4.0 * self.pots
 
 
 class ShotDetector:

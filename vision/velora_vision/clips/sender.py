@@ -27,6 +27,9 @@ class ClipJob:
     frames: list[bytes]  # JPEG pictures
     fps: float
     caption: str
+    table: str = ""
+    score: float = 0.0
+    shot_epoch: float = 0.0  # when the shot ended, seconds since 1970
     attempts: int = 0
     not_before: float = 0.0
     created: float = field(default_factory=time.time)

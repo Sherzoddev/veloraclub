@@ -106,7 +106,7 @@ def test_alert_and_clip_both_go_out_and_the_clip_leaves_no_trace(env):
     clip = [e for e in sent if e["method"] == "sendVideo"][0]
     assert clip["chat"] == "-100777"          # the channel, not the owner
     assert clip["video_exists"] and clip["video_bytes"] > 1000
-    assert "1 Stol" in clip["text"] and "удар" in clip["text"]
+    assert "1 Stol" in clip["text"] and ("удар" in clip["text"] or "лузу" in clip["text"])
     assert list((tmp_path / "tmp").glob("*")) == []   # deleted right after sending
 
 
