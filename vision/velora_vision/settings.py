@@ -23,6 +23,8 @@ class CameraSettings:
     name: str
     url: str  # rtsp://user:password@ip/...; secret
     anchor: str = "foot"  # "foot": camera at an angle, "center": from above
+    rotate: int = 0  # turn the picture, degrees clockwise: 0, 90, 180, 270
+    widen: bool = False  # stretch a squeezed (almost square) picture to 16:9
 
 
 @dataclass
@@ -91,7 +93,7 @@ class Settings:
                 if t.polygon or t.felt:
                     tables.append(t)
             if tables:  # a camera without zones has nothing to watch
-                cameras.append(CameraCfg(cam.name, cam.url, tables, cam.anchor))
+                cameras.append(CameraCfg(cam.name, cam.url, tables, cam.anchor, cam.rotate, cam.widen))
         return Config(
             timezone=timezone or "Asia/Tashkent",
             poll_seconds=poll_seconds,
@@ -109,7 +111,8 @@ class Settings:
             "extra_chat_ids": self.extra_chat_ids,
             "supabase_url": self.supabase_url,
             "cameras": [
-                {"id": c.id, "name": c.name, "url": secrets_store.protect(c.url), "anchor": c.anchor}
+                {"id": c.id, "name": c.name, "url": secrets_store.protect(c.url), "anchor": c.anchor,
+                 "rotate": c.rotate, "widen": c.widen}
                 for c in self.cameras
             ],
             "zones": self.zones,
@@ -139,6 +142,8 @@ class Settings:
                 name=str(c.get("name") or "Камера"),
                 url=secrets_store.unprotect(str(c.get("url", ""))),
                 anchor=c.get("anchor") if c.get("anchor") in ("foot", "center") else "foot",
+                rotate=c.get("rotate") if c.get("rotate") in (0, 90, 180, 270) else 0,
+                widen=bool(c.get("widen", False)),
             )
             for c in data.get("cameras") or []
         ]

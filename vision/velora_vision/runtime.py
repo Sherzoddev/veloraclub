@@ -210,7 +210,7 @@ class Controller:
                 log.warning("Некуда слать сообщения: владелец не запускал бота в Telegram")
             telegram = Telegram(settings.bot_token, chats)
             notifier = TelegramNotifier(telegram)
-            readers = {c.name: CameraReader(c.name, c.source, stop) for c in cfg.cameras}
+            readers = {c.name: CameraReader(c.name, c.source, stop, c.rotate, c.widen) for c in cfg.cameras}
             self.sender, self.recorders = None, []
             for r in readers.values():
                 r.start()

@@ -94,7 +94,7 @@ class ZoneEditor(tk.Toplevel):
         ttk.Button(bottom, text="Отмена", command=self.destroy).pack(side="right")
 
         self._refresh_list()
-        bg.run(lambda: grab_frame(camera.url, 7000, 6), self._got_frame)
+        bg.run(lambda: grab_frame(camera.url, 7000, 6, camera.rotate, camera.widen), self._got_frame)
 
     # -- picture ----------------------------------------------------------
     def _got_frame(self, frame, error) -> None:

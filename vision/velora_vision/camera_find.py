@@ -33,6 +33,49 @@ PATHS: list[tuple[str, str]] = [
 ]
 
 
+# The same camera's light ("sub") and main stream differ by one piece of the
+# address. The light one is often squeezed into an almost square picture
+# (704x576), the main one is wide.
+_STREAM_PAIRS = [
+    ("subtype=1", "subtype=0"),
+    ("/Streaming/Channels/102", "/Streaming/Channels/101"),
+    ("/stream2", "/stream1"),
+    ("/h264Preview_01_sub", "/h264Preview_01_main"),
+    ("/media/video2", "/media/video1"),
+    ("/h264/ch1/sub/", "/h264/ch1/main/"),
+]
+
+
+def _has(url: str, part: str) -> bool:
+    # "subtype=1" must not match "subtype=10": the part ends the address or
+    # is followed by "&"; paths ending in "/" can sit in the middle.
+    if part.endswith("/"):
+        return part in url
+    return url.endswith(part) or (part + "&") in url
+
+
+def stream_kind(url: str) -> Optional[str]:
+    """"sub", "main", or None when the address is not a known one."""
+    for sub_part, main_part in _STREAM_PAIRS:
+        if _has(url, sub_part):
+            return "sub"
+        if _has(url, main_part):
+            return "main"
+    return None
+
+
+def other_stream(url: str, want: str) -> Optional[str]:
+    """The address of the same camera's "main" or "sub" stream (the address
+    itself if it already is), or None for an address we don't know."""
+    for sub_part, main_part in _STREAM_PAIRS:
+        have, target = (sub_part, main_part) if want == "main" else (main_part, sub_part)
+        if _has(url, target):
+            return url
+        if _has(url, have):
+            return url.replace(have, target, 1)
+    return None
+
+
 @dataclass(frozen=True)
 class Found:
     url: str
@@ -72,6 +115,16 @@ def autodetect(
         frame = grab(url, 4000, 3)
         if frame is not None:
             h, w = frame.shape[:2]
+            if w / h < 1.5:
+                # A squeezed light stream: the same camera's main stream is
+                # wide, take it if it answers.
+                main_url = other_stream(url, "main")
+                if main_url and main_url != url:
+                    big = grab(main_url, 4000, 3)
+                    if big is not None:
+                        bh, bw = big.shape[:2]
+                        if bw / bh >= 1.5:
+                            return Found(main_url, label.replace("доп. поток", "основной поток"), bw, bh)
             return Found(url, label, w, h)
     return None
 

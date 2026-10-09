@@ -54,8 +54,9 @@ Deno.serve(async (req: Request) => {
     db.from("resources")
       .select("id,name,zone,sort_order,number")
       .eq("club_id", clubId)
+      // The same rule as the cash-desk app: "active" decides, archived_at is
+      // not used for tables (some clubs carry it from old clean-ups).
       .eq("active", true)
-      .is("archived_at", null)
       .order("sort_order", { ascending: true })
       .order("number", { ascending: true }),
     db.from("game_sessions")
