@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Optional
 
-from .. import camera_find
+from .. import camera_find, rtsp_probe
 from ..camera import grab_frame, mask_url, reshape
 from ..settings import CameraSettings
 from .common import FONT_BOLD, GREEN, GREY, RED, Background, center_on, hint, photo_from_frame
@@ -41,6 +41,7 @@ class CameraDialog(tk.Toplevel):
         self._found_url: Optional[str] = None
         self._thumb = None
         self._progress_text = ""
+        self._diagnosis = ""  # why the camera did not answer, in plain words
 
         self.title("Камера" if camera is None else "Изменить камеру")
         self.transient(parent)
@@ -195,6 +196,7 @@ class CameraDialog(tk.Toplevel):
         if not name:
             return self._set_status("Впишите название камеры.", RED)
         self.force_btn.pack_forget()
+        self._diagnosis = ""
         self._busy = True
         self.save_btn.config(state="disabled")
         if self.mode.get() == "url":
@@ -238,6 +240,8 @@ class CameraDialog(tk.Toplevel):
             cancelled=lambda: self._cancel,
         )
         if found is None:
+            if not self._cancel:
+                self._diagnosis = rtsp_probe.explain(ip, self.user.get().strip(), self.password.get())
             return None
         wanted = self._wanted_stream(found.url)
         if wanted != found.url:
@@ -261,7 +265,9 @@ class CameraDialog(tk.Toplevel):
         self._busy = False
         self.save_btn.config(state="normal")
         if error or result is None:
+            reason = f"{self._diagnosis}\n\n" if self._diagnosis else ""
             self._set_status(
+                reason +
                 "Картинку получить не удалось. Проверьте:\n"
                 "• IP, логин и пароль (как для входа в камеру);\n"
                 "• что компьютер и камера в одной сети;\n"
