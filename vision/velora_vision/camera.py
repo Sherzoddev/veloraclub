@@ -30,7 +30,30 @@ def open_capture(source: str, timeout_ms: int = 5000):
     return cv2.VideoCapture(source)
 
 
-def grab_frame(source: str, timeout_ms: int = 5000, attempts: int = 8):
+ROTATIONS = (0, 90, 180, 270)  # clockwise
+WIDE = 16 / 9
+
+
+def reshape(frame, rotate: int = 0, widen: bool = False):
+    """The picture the way the person wants to see it: turned (a camera
+    mounted on its side) and, if asked, stretched to 16:9 (a camera's light
+    stream is often squeezed into an almost square 4:3 picture). Zones are
+    kept as fractions of the picture, so they follow."""
+    if rotate == 90:
+        frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    elif rotate == 180:
+        frame = cv2.rotate(frame, cv2.ROTATE_180)
+    elif rotate == 270:
+        frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    if widen:
+        h, w = frame.shape[:2]
+        if h > 0 and w / h < WIDE - 0.05:
+            frame = cv2.resize(frame, (int(round(h * WIDE)), h), interpolation=cv2.INTER_LINEAR)
+    return frame
+
+
+def grab_frame(source: str, timeout_ms: int = 5000, attempts: int = 8,
+               rotate: int = 0, widen: bool = False):
     """One good picture from the camera, or None."""
     cap = open_capture(source, timeout_ms)
     try:
@@ -41,16 +64,19 @@ def grab_frame(source: str, timeout_ms: int = 5000, attempts: int = 8):
             ok, f = cap.read()
             if ok and f is not None:
                 frame = f
-        return frame
+        return reshape(frame, rotate, widen) if frame is not None else None
     finally:
         cap.release()
 
 
 class CameraReader(threading.Thread):
-    def __init__(self, name: str, source: str, stop: threading.Event):
+    def __init__(self, name: str, source: str, stop: threading.Event,
+                 rotate: int = 0, widen: bool = False):
         super().__init__(name=f"camera-{name}", daemon=True)
         self.cam_name = name
         self.source = source
+        self.rotate = rotate
+        self.widen = widen
         self.is_file = "://" not in source
         self._stop_event = stop
         self._lock = threading.Lock()
@@ -82,6 +108,7 @@ class CameraReader(threading.Thread):
                 ok, frame = cap.read()
                 if not ok:
                     break
+                frame = reshape(frame, self.rotate, self.widen)
                 with self._lock:
                     self._frame = frame
                     self._frame_at = time.time()

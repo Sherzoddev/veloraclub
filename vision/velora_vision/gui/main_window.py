@@ -13,6 +13,7 @@ from .. import __version__, autostart, messages
 from .. import settings as settings_mod
 from ..camera import mask_url
 from ..config import CameraCfg, TableCfg
+from ..geometry import turn_point
 from ..runtime import FAILED, RUNNING, STARTING, STOPPED, Controller, LogBuffer
 from ..sessions import SessionsError
 from ..settings import CameraSettings, Settings
@@ -277,7 +278,13 @@ class MainWindow:
         dlg = CameraDialog(self.root, self.bg, cam, cam.name)
         self.root.wait_window(dlg)
         if dlg.result:
+            turn = (dlg.result.rotate - cam.rotate) % 360
+            if turn:  # drawn zones turn with the picture
+                for store in (self.settings.zones, self.settings.felt_zones):
+                    for name, poly in (store.get(cam.id) or {}).items():
+                        store[cam.id][name] = [list(turn_point(x, y, turn)) for x, y in poly]
             cam.name, cam.url, cam.anchor = dlg.result.name, dlg.result.url, dlg.result.anchor
+            cam.rotate, cam.widen = dlg.result.rotate, dlg.result.widen
             self._save_now()
             self._refresh_all()
 
@@ -345,7 +352,7 @@ class MainWindow:
                                 parent=self.root)
             return
         accuracy = self.settings.accuracy
-        PreviewWindow(self.root, CameraCfg(cam.name, cam.url, tables, cam.anchor),
+        PreviewWindow(self.root, CameraCfg(cam.name, cam.url, tables, cam.anchor, cam.rotate, cam.widen),
                       lambda: self.controller.detector(accuracy))
 
     def _test_clip(self) -> None:

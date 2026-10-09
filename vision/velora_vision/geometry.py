@@ -45,3 +45,16 @@ def box_anchor(
     if anchor == "center":
         return cx, (y1 + y2) / 2
     return cx, y2
+
+
+def turn_point(x: float, y: float, degrees: int) -> Point:
+    """Where a point (in fractions of the picture) lands when the picture is
+    turned clockwise by 0, 90, 180 or 270 degrees."""
+    d = degrees % 360
+    if d == 90:
+        return (1.0 - y, x)
+    if d == 180:
+        return (1.0 - x, 1.0 - y)
+    if d == 270:
+        return (y, 1.0 - x)
+    return (x, y)

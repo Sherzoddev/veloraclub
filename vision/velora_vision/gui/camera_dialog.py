@@ -7,13 +7,26 @@ from tkinter import messagebox, ttk
 from typing import Optional
 
 from .. import camera_find
-from ..camera import grab_frame, mask_url
+from ..camera import grab_frame, mask_url, reshape
 from ..settings import CameraSettings
 from .common import FONT_BOLD, GREEN, GREY, RED, Background, center_on, hint, photo_from_frame
 
 ANGLES = {
     "Сбоку или под углом (обычно так)": "foot",
     "Строго сверху над столом": "center",
+}
+# The camera's two streams: the light one is often squeezed into an almost
+# square picture, the main one is wide and sharp.
+STREAMS = {
+    "Как сейчас": None,
+    "Основной поток (широкий и чёткий)": "main",
+    "Лёгкий поток (может быть квадратным)": "sub",
+}
+ROTATIONS = {
+    "Не поворачивать": 0,
+    "На 90° по часовой стрелке": 90,
+    "На 90° против часовой стрелки": 270,
+    "На 180° (камера вверх ногами)": 180,
 }
 
 
@@ -32,7 +45,7 @@ class CameraDialog(tk.Toplevel):
         self.title("Камера" if camera is None else "Изменить камеру")
         self.transient(parent)
         self.resizable(False, False)
-        center_on(self, parent, 560, 640)
+        center_on(self, parent, 560, 800)
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.grab_set()
 
@@ -99,6 +112,21 @@ class CameraDialog(tk.Toplevel):
         self.angle.set(next(k for k, v in ANGLES.items() if v == cur))
         ttk.Combobox(self, textvariable=self.angle, values=values, state="readonly",
                      width=38).pack(anchor="w", padx=16, pady=4)
+
+        ttk.Label(self, text="Картинка").pack(anchor="w", padx=16, pady=(8, 0))
+        pic = ttk.Frame(self)
+        pic.pack(anchor="w", padx=16, pady=2)
+        self.stream = tk.StringVar(value=next(iter(STREAMS)))
+        ttk.Combobox(pic, textvariable=self.stream, values=list(STREAMS), state="readonly",
+                     width=36).grid(row=0, column=0, sticky="w", pady=1)
+        self.rotate = tk.StringVar()
+        cur_rot = camera.rotate if camera else 0
+        self.rotate.set(next(k for k, v in ROTATIONS.items() if v == cur_rot))
+        ttk.Combobox(pic, textvariable=self.rotate, values=list(ROTATIONS), state="readonly",
+                     width=36).grid(row=1, column=0, sticky="w", pady=1)
+        self.widen = tk.BooleanVar(value=bool(camera.widen) if camera else False)
+        ttk.Checkbutton(pic, text="Растянуть до широкого 16:9 (если картинка сжата в квадрат)",
+                        variable=self.widen).grid(row=2, column=0, sticky="w", pady=1)
 
         self.status = ttk.Label(self, text="", wraplength=520, justify="left")
         self.status.pack(anchor="w", padx=16, pady=(10, 2))
@@ -188,12 +216,20 @@ class CameraDialog(tk.Toplevel):
             self.bg.run(lambda: self._probe_ip(ip), self._checked)
             self.after(300, self._poll_progress)
 
+    def _wanted_stream(self, url: str) -> str:
+        """The address with the main or the light stream, as chosen; the same
+        address when "as now" is chosen or the address is not a known one."""
+        want = STREAMS.get(self.stream.get())
+        return (camera_find.other_stream(url, want) if want else None) or url
+
     def _probe_url(self, url: str):
-        frame = grab_frame(url, 6000, 5)
-        if frame is None:
-            return None
-        h, w = frame.shape[:2]
-        return camera_find.Found(url, "ваш адрес", w, h), frame
+        wanted = self._wanted_stream(url)
+        for candidate in dict.fromkeys([wanted, url]):  # fall back to the typed address
+            frame = grab_frame(candidate, 6000, 5)
+            if frame is not None:
+                h, w = frame.shape[:2]
+                return camera_find.Found(candidate, "ваш адрес", w, h), frame
+        return None
 
     def _probe_ip(self, ip: str):
         found = camera_find.autodetect(
@@ -203,6 +239,12 @@ class CameraDialog(tk.Toplevel):
         )
         if found is None:
             return None
+        wanted = self._wanted_stream(found.url)
+        if wanted != found.url:
+            frame = grab_frame(wanted, 4000, 3)
+            if frame is not None:
+                h, w = frame.shape[:2]
+                return camera_find.Found(wanted, found.label, w, h), frame
         return found, grab_frame(found.url, 4000, 3)
 
     def _progress(self, i: int, n: int, label: str) -> None:
@@ -232,6 +274,7 @@ class CameraDialog(tk.Toplevel):
         self._found_url = found.url
         self._set_status(f"✓ Картинка получена: {found.width}×{found.height} ({found.label}).", GREEN)
         if frame is not None:
+            frame = reshape(frame, ROTATIONS.get(self.rotate.get(), 0), self.widen.get())
             self._thumb, _ = photo_from_frame(frame, 300, 170)
             self.thumb.config(image=self._thumb)
         self.after(600, self._finish_ok)
@@ -263,6 +306,8 @@ class CameraDialog(tk.Toplevel):
             name=self.name.get().strip(),
             url=url,
             anchor=self._anchor(),
+            rotate=ROTATIONS.get(self.rotate.get(), 0),
+            widen=self.widen.get(),
         )
         self.destroy()
 

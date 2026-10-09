@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Callable
 
-from ..camera import open_capture
+from ..camera import open_capture, reshape
 from ..config import CameraCfg
 from ..service import count_people
 from ..snapshot import draw_overlay
@@ -67,6 +67,7 @@ class PreviewWindow(tk.Toplevel):
                     if time.time() - last < 0.7:
                         continue
                     last = time.time()
+                    frame = reshape(frame, self.camera.rotate, self.camera.widen)
                     boxes = detector.detect(frame)
                     h, w = frame.shape[:2]
                     counts = count_people(boxes, self.camera, w, h)

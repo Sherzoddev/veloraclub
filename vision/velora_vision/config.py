@@ -25,6 +25,8 @@ class CameraCfg:
     source: str  # rtsp://... or a video file
     tables: list[TableCfg]
     anchor: str = "foot"  # "foot" or "center"
+    rotate: int = 0  # degrees clockwise: 0, 90, 180, 270
+    widen: bool = False  # stretch to 16:9
 
     @property
     def is_file(self) -> bool:
