@@ -44,7 +44,7 @@ class Settings:
     accuracy: str = "accurate"  # "accurate" | "fast"
     clips_enabled: bool = True  # record striking shots
     clips_chat_id: str = ""  # channel (-100... or @name) for the clips
-    clips_mode: str = "learn"  # "learn" | "bright" | "rare"
+    clips_mode: str = "pot"  # "pot" | "learn" | "bright" | "rare"
     clips_to_owner: bool = False  # also send the clips to the owner's chat
     autostart: bool = False  # start with Windows
     run_on_open: bool = True  # begin watching as soon as the program opens
@@ -161,7 +161,10 @@ class Settings:
         d.felt_zones = load_zones(data.get("felt_zones"))
         d.clips_enabled = bool(data.get("clips_enabled", True))
         d.clips_chat_id = str(data.get("clips_chat_id", ""))
-        d.clips_mode = data.get("clips_mode") if data.get("clips_mode") in ("learn", "bright", "rare") else "learn"
+        mode = data.get("clips_mode")
+        # "learn" (every shot) was the first default, kept to collect examples;
+        # people asked for the shots with a ball potted only, so it moves there.
+        d.clips_mode = mode if mode in ("pot", "bright", "rare") else "pot"
         d.clips_to_owner = bool(data.get("clips_to_owner", False))
         d.min_people_play = int(data.get("min_people_play", d.min_people_play))
         d.unrecorded_minutes = float(data.get("unrecorded_minutes", d.unrecorded_minutes))

@@ -9,6 +9,7 @@ import logging
 import threading
 import time
 from collections import deque
+from dataclasses import replace
 from datetime import datetime
 from typing import Callable, Optional
 from zoneinfo import ZoneInfo
@@ -17,6 +18,7 @@ import cv2
 
 from ..config import CameraCfg
 from .motion import BallMotion
+from .pots import PotTracker
 from .sender import ClipJob, ClipSender
 from .shots import Shot, ShotDetector
 
@@ -25,6 +27,7 @@ log = logging.getLogger("velora_vision.clips")
 # mode -> (lowest score that is sent, seconds between clips of one table,
 # clips per hour for the whole club). First guesses, to be tuned on real play.
 MODES = {
+    "pot": (0.0, 20.0, 60),      # only shots after which a ball went into a pocket
     "learn": (0.0, 90.0, 40),    # every shot: collect examples to learn from
     "bright": (5.0, 180.0, 20),  # several balls at once
     "rare": (8.0, 300.0, 10),    # only the most striking
@@ -40,6 +43,7 @@ class _TableWatch:
         self.name = name
         self.motion = motion
         self.detector = ShotDetector()
+        self.pots: Optional[PotTracker] = None  # made on the first picture (needs its shape)
         self.last_sent = float("-inf")
 
 
@@ -62,7 +66,8 @@ class ClipRecorder(threading.Thread):
         self.reader = reader
         self.sender = sender
         self._stop_event = stop
-        self.min_score, self.cooldown, self.per_hour = MODES.get(mode, MODES["learn"])
+        self.mode = mode if mode in MODES else "pot"
+        self.min_score, self.cooldown, self.per_hour = MODES[self.mode]
         self.fps = fps
         self.tz = ZoneInfo(timezone)
         self.table_busy = table_busy or (lambda name: True)
@@ -72,11 +77,15 @@ class ClipRecorder(threading.Thread):
             _TableWatch(t.resource, BallMotion(t.felt))
             for t in camera.tables if t.felt is not None
         ]
-        keep = PRE_ROLL + 20.0 + POST_ROLL + 2.0
-        self.ring: deque[tuple[float, bytes]] = deque(maxlen=int(keep * fps))
+        self.keep = PRE_ROLL + 20.0 + POST_ROLL + 2.0  # seconds of picture kept in memory
+        self.ring: deque[tuple[float, bytes]] = deque()
         self._pending: list[tuple[_TableWatch, Shot, float]] = []
         self._sent_times: deque[float] = deque()
         self.shots_seen = 0
+
+    @property
+    def pots_seen(self) -> int:
+        return sum(w.pots.total for w in self.watches if w.pots)
 
     # -- one look -----------------------------------------------------------
     def step(self, frame, now: float) -> None:
@@ -86,8 +95,14 @@ class ClipRecorder(threading.Thread):
         ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 72])
         if ok:
             self.ring.append((now, buf.tobytes()))
+        while self.ring and now - self.ring[0][0] > self.keep:
+            self.ring.popleft()
         for watch in self.watches:
-            shot = watch.detector.update(now, watch.motion.count(frame))
+            blobs = watch.motion.count(frame)
+            if watch.pots is None:
+                watch.pots = PotTracker(watch.motion.polygon, h / w)
+            watch.pots.update(now, watch.motion.last_blobs)
+            shot = watch.detector.update(now, blobs)
             if shot is not None:
                 self.shots_seen += 1
                 self._shot_finished(watch, shot, now)
@@ -96,6 +111,11 @@ class ClipRecorder(threading.Thread):
     def _shot_finished(self, watch: _TableWatch, shot: Shot, now: float) -> None:
         if not self.table_busy(watch.name):
             return  # balls "moving" with nobody at the table: a reflection
+        pots = watch.pots.pots_between(shot.start - 0.5, shot.end + 1.5) if watch.pots else 0
+        shot = replace(shot, pots=pots)
+        if self.mode == "pot" and pots == 0:
+            log.debug("%s: удар без забитого шара, не отправляю", watch.name)
+            return
         if shot.score < self.min_score:
             log.debug("%s: удар %.1f < %.1f, не отправляю", watch.name, shot.score, self.min_score)
             return
@@ -115,14 +135,22 @@ class ClipRecorder(threading.Thread):
             if now < due:
                 still.append((watch, shot, due))
                 continue
-            frames = [j for t, j in self.ring if shot.start - PRE_ROLL <= t <= shot.end + POST_ROLL]
-            if len(frames) < 5:
+            taken = [(t, j) for t, j in self.ring if shot.start - PRE_ROLL <= t <= shot.end + POST_ROLL]
+            if len(taken) < 5:
                 continue
+            frames = [j for _, j in taken]
+            # Play at the speed it was filmed: the picture comes at whatever
+            # rate the camera and the computer manage, not at a fixed one.
+            span = taken[-1][0] - taken[0][0]
+            fps = min(30.0, max(4.0, (len(taken) - 1) / span)) if span > 0 else self.fps
             when = datetime.fromtimestamp(shot.end, self.tz).strftime("%H:%M")
-            caption = (f"🎱 {watch.name}: удар в {when}\n"
-                       f"шаров в движении: {shot.peak}, длится {shot.seconds:.0f} с, "
+            head = (f"🎯 {watch.name}: шар в лузу, {when}" if shot.pots
+                    else f"🎱 {watch.name}: удар в {when}")
+            caption = (f"{head}\n"
+                       f"шаров в движении: {shot.peak}, длится {span:.0f} с, "
                        f"оценка {shot.score:.1f}")
-            self.sender.submit(ClipJob(frames, self.fps, caption))
+            self.sender.submit(ClipJob(frames, fps, caption, table=watch.name,
+                                       score=shot.score, shot_epoch=shot.end))
         self._pending = still
 
     # -- thread -------------------------------------------------------------
@@ -130,9 +158,16 @@ class ClipRecorder(threading.Thread):
         if not self.watches:
             return
         period = 1.0 / self.fps
+        last_frame = None
         while not self._stop_event.is_set():
             started = self.clock()
             frame, age = self.reader.latest()
+            if frame is last_frame:
+                # The camera has not sent a new picture yet. Looking at the
+                # same one again would read as "nothing moved".
+                self._sleep(0.01)
+                continue
+            last_frame = frame
             if frame is not None and age < 2.0:
                 try:
                     self.step(frame, started)

@@ -31,6 +31,7 @@ class BallMotion:
         self._mask = None
         self._mask_area = 1
         self._size = None
+        self.last_blobs: list[Point] = []  # centres of the balls seen, fractions of the picture
 
     def _prepare(self, h: int, w: int) -> None:
         self._size = (h, w)
@@ -42,6 +43,7 @@ class BallMotion:
         self._prev = None
 
     def count(self, frame) -> int:
+        self.last_blobs = []
         h0, w0 = frame.shape[:2]
         scale = self.width / w0
         small = cv2.resize(frame, (self.width, max(1, int(h0 * scale))), interpolation=cv2.INTER_AREA)
@@ -58,8 +60,9 @@ class BallMotion:
             return 0  # the light or the camera changed, not the balls
         moving = cv2.morphologyEx(moving, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
         moving = cv2.dilate(moving, np.ones((3, 3), np.uint8))
-        n, _, stats, _ = cv2.connectedComponentsWithStats(moving, connectivity=8)
+        n, _, stats, centroids = cv2.connectedComponentsWithStats(moving, connectivity=8)
         blobs = 0
+        sh, sw = gray.shape[:2]
         for i in range(1, n):
             w, h, area = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT], stats[i, cv2.CC_STAT_AREA]
             ratio = area / self._mask_area
@@ -68,4 +71,5 @@ class BallMotion:
             if max(w, h) / max(1, min(w, h)) > self.max_aspect:
                 continue
             blobs += 1
+            self.last_blobs.append((float(centroids[i][0]) / sw, float(centroids[i][1]) / sh))
         return blobs

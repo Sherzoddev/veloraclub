@@ -410,7 +410,7 @@ class MainWindow:
         ttk.Checkbutton(t, text="Записывать удары и отправлять в канал (нужно нарисовать сукно стола)",
                         variable=self.clips_enabled, command=self._changed).pack(anchor="w", padx=28, pady=2)
         self.clips_mode = tk.StringVar(value=self.settings.clips_mode)
-        for value, text in (("learn", "Все удары: чтобы набрать примеры для обучения (не чаще раза в 1,5 минуты на стол)"),
+        for value, text in (("pot", "Только когда шар забит в лузу (рекомендуется)"),
                             ("bright", "Только яркие: когда двигаются несколько шаров сразу"),
                             ("rare", "Только самые яркие (например, разбив пирамиды)")):
             ttk.Radiobutton(t, text=text, value=value, variable=self.clips_mode,
@@ -535,8 +535,9 @@ class MainWindow:
         c = self.controller
         if c.state == RUNNING and c.sender is not None:
             seen = sum(r.shots_seen for r in c.recorders)
+            pots = sum(r.pots_seen for r in c.recorders)
             self.clips_label.config(
-                text=f"Удары: найдено {seen}, роликов отправлено {c.sender.sent}"
+                text=f"Удары: найдено {seen}, шаров в лузу {pots}, роликов отправлено {c.sender.sent}"
                      + (f", ждут отправки {c.sender.pending()}" if c.sender.pending() else ""))
         else:
             self.clips_label.config(text="")
