@@ -139,6 +139,26 @@ class ClubRepository {
             .order('starts_at', ascending: true),
       );
 
+  /// Bookings that still matter: waiting or confirmed and not long over. The
+  /// table cards, the bookings page and the bell need nothing else, and the
+  /// whole history only grows (and was fetched again at every refresh).
+  Future<List<Map<String, dynamic>>> openReservations(String clubId) async =>
+      rowList(
+        await client
+            .from('reservations')
+            .select('*, resources(name), customers(full_name,phone)')
+            .eq('club_id', clubId)
+            .inFilter('status', ['pending', 'confirmed'])
+            .gte(
+                'ends_at',
+                DateTime.now()
+                    .subtract(const Duration(minutes: 30))
+                    .toUtc()
+                    .toIso8601String())
+            .order('starts_at', ascending: true)
+            .limit(300),
+      );
+
   Future<List<Map<String, dynamic>>> waitlist(String clubId) async => rowList(
         await client.rpc('waitlist_list', params: {'p_club_id': clubId}),
       );

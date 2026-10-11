@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -21,7 +23,7 @@ class ClubController extends ChangeNotifier {
     notifyListeners();
     try {
       context = await repository.loadContext();
-      _channel = repository.subscribeClub(context!.clubId, refresh);
+      _channel = repository.subscribeClub(context!.clubId, _refreshSoon);
     } catch (e) {
       error = e;
     } finally {
@@ -41,8 +43,19 @@ class ClubController extends ChangeNotifier {
   }
 
   void refresh() {
+    _debounce?.cancel();
     revision++;
     notifyListeners();
+  }
+
+  Timer? _debounce;
+
+  /// Realtime sends several events for one change (starting a table touches
+  /// the session, the table and the order): they come within a fraction of a
+  /// second and used to start as many full reloads. One is enough.
+  void _refreshSoon() {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 350), refresh);
   }
 
   /// Refetches `context.club`/`member`/`role`/`profile` from the DB — needed
@@ -56,6 +69,7 @@ class ClubController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     if (_channel != null) repository.client.removeChannel(_channel!);
     super.dispose();
   }

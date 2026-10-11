@@ -404,7 +404,7 @@ class _NotificationsBellState extends State<_NotificationsBell> {
       final repo = widget.controller.repository;
       final results = await Future.wait([
         repo.products(clubId),
-        repo.reservations(clubId),
+        repo.openReservations(clubId),
       ]);
       final products = (results[0] as List).cast<Map<String, dynamic>>();
       final reservations = (results[1] as List).cast<Map<String, dynamic>>();
@@ -415,8 +415,9 @@ class _NotificationsBellState extends State<_NotificationsBell> {
               ((p['stock_quantity'] as num?) ?? 0) <=
                   ((p['minimum_stock'] as num?) ?? 0))
           .toList();
-      final pending =
-          reservations.where((r) => r['status'] == 'pending').toList();
+      final pending = reservations
+          .where((r) => r['status'] == 'pending' && bookingIsOpen(r))
+          .toList();
       if (!mounted) return;
       final newTotal = lowStock.length + pending.length;
       final oldTotal = _lowStock.length + _pending.length;

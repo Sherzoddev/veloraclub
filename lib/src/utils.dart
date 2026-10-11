@@ -13,6 +13,17 @@ String money(dynamic value) {
   return '${_money.format(number).replaceAll(' ', '\u00a0')}\u00a0so\'m';
 }
 
+/// A booking that still matters: the client has not come yet (waiting or
+/// confirmed) and its time is not long over. Started, finished, cancelled and
+/// long-gone bookings do not belong on the table cards or the bookings page.
+bool bookingIsOpen(Map<String, dynamic> booking, {DateTime? now}) {
+  final status = '${booking['status']}';
+  if (status != 'pending' && status != 'confirmed') return false;
+  final end = DateTime.tryParse('${booking['ends_at']}')?.toLocal();
+  final at = now ?? DateTime.now();
+  return end == null || end.isAfter(at.subtract(const Duration(minutes: 30)));
+}
+
 String shortDate(dynamic value) {
   if (value == null) return '—';
   final parsed = DateTime.tryParse('$value')?.toLocal();
