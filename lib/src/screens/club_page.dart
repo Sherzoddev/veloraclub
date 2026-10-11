@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../data/club_repository.dart';
 import '../i18n.dart';
 import '../services/notification_sound.dart';
 import '../state/club_controller.dart';
@@ -40,6 +41,39 @@ class _ClubPageState extends State<ClubPage> {
   String family = 'ALL';
   String zone = 'ALL';
 
+  // The customer list only feeds the "who is playing" pickers and can be
+  // thousands of rows: it was fetched again at every refresh, and a single
+  // start of a table makes several of them. A minute-old copy is plenty.
+  List<Map<String, dynamic>>? _customers;
+  DateTime _customersAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  Future<List<Map<String, dynamic>>> _customersCached(
+      ClubRepository repo, String clubId) async {
+    final cached = _customers;
+    if (cached != null &&
+        DateTime.now().difference(_customersAt) < const Duration(minutes: 1)) {
+      return cached;
+    }
+    final fresh = await repo.customers(clubId);
+    _customers = fresh;
+    _customersAt = DateTime.now();
+    return fresh;
+  }
+
+  // One fetch per refresh of the club (not per rebuild of this page: a theme
+  // or language switch, or the sidebar, rebuilds it too).
+  Future<List<dynamic>>? _future;
+  int _futureRevision = -1;
+
+  Future<List<dynamic>> _data() {
+    final revision = widget.controller.revision;
+    if (_future == null || _futureRevision != revision) {
+      _futureRevision = revision;
+      _future = load();
+    }
+    return _future!;
+  }
+
   Future<List<dynamic>> load() async {
     final repo = widget.controller.repository;
     final clubId = widget.controller.context!.clubId;
@@ -47,8 +81,8 @@ class _ClubPageState extends State<ClubPage> {
       repo.resources(clubId),
       repo.activeSessions(clubId),
       repo.tariffs(clubId),
-      repo.customers(clubId),
-      repo.reservations(clubId),
+      _customersCached(repo, clubId),
+      repo.openReservations(clubId),
       repo.zones(clubId),
     ]);
   }
@@ -67,7 +101,7 @@ class _ClubPageState extends State<ClubPage> {
     return Padding(
       padding: pagePadding(context),
       child: AsyncPane<List<dynamic>>(
-        future: load(),
+        future: _data(),
         builder: (context, values) {
           final resources = List<Map<String, dynamic>>.from(values[0])
             ..sort((a, b) {
@@ -86,7 +120,7 @@ class _ClubPageState extends State<ClubPage> {
           final reservations = values[4] as List<Map<String, dynamic>>;
           final reservationByResource = <String, Map<String, dynamic>>{};
           for (final r in reservations) {
-            if (r['status'] != 'pending') continue;
+            if (!bookingIsOpen(r)) continue;
             reservationByResource.putIfAbsent('${r['resource_id']}', () => r);
           }
           final families = <String>{
@@ -709,6 +743,33 @@ String _clockOf(dynamic iso) {
   return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 }
 
+/// "Bron 20:00", with the day when it is not today: "Bron 12.10, 20:00".
+String _bookingTitle(Map<String, dynamic> booking) {
+  final start = DateTime.tryParse('${booking['starts_at']}')?.toLocal();
+  if (start == null) return tr('Bron');
+  final now = DateTime.now();
+  final today = start.year == now.year &&
+      start.month == now.month &&
+      start.day == now.day;
+  final day = today
+      ? ''
+      : '${start.day.toString().padLeft(2, '0')}.${start.month.toString().padLeft(2, '0')}, ';
+  return '${tr('Bron')} $day${_clockOf(start.toIso8601String())}';
+}
+
+/// Who booked and for how many: "Aziz · 4".
+String _bookingWho(Map<String, dynamic> booking) {
+  final customer = booking['customers'];
+  final name =
+      '${booking['customer_name'] ?? (customer is Map ? customer['full_name'] : '') ?? ''}'
+          .trim();
+  final players = booking['players_count'];
+  return [
+    if (name.isNotEmpty) name,
+    if (players is num) '$players',
+  ].join(' · ');
+}
+
 class _ResourceCard extends StatelessWidget {
   const _ResourceCard({
     required this.resource,
@@ -844,13 +905,15 @@ class _ResourceCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 if (reservation != null) ...[
-                  Text('${tr('Bron')} ${_clockOf(reservation!['starts_at'])}',
+                  Text(_bookingTitle(reservation!),
                       style: TextStyle(
                           color: VColors.orange,
                           fontSize: 15,
                           fontWeight: FontWeight.w800)),
-                  if ((reservation!['players_count'] as num?) != null)
-                    Text('${reservation!['players_count']}',
+                  if (_bookingWho(reservation!).isNotEmpty)
+                    Text(_bookingWho(reservation!),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: VColors.subtle, fontSize: 13)),
                   const SizedBox(height: 6),
                 ],

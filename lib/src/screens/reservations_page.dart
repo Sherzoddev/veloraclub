@@ -30,10 +30,11 @@ class ReservationsPage extends StatelessWidget {
           Expanded(
             child: AsyncPane<List<Map<String, dynamic>>>(
               future: controller.repository
-                  .reservations(controller.context!.clubId),
+                  .openReservations(controller.context!.clubId),
               builder: (context, rows) {
-                final visible =
-                    rows.where((r) => r['status'] != 'cancelled').toList();
+                // Waiting and confirmed ones only: a booking disappears from
+                // here once the client starts playing (or it is cancelled).
+                final visible = rows.where(bookingIsOpen).toList();
                 if (visible.isEmpty) {
                   return EmptyState(
                       icon: Icons.event_available_outlined,

@@ -10,20 +10,53 @@ import 'screens/login_page.dart';
 import 'state/club_controller.dart';
 import 'theme.dart';
 
-class VeloraApp extends StatelessWidget {
+class VeloraApp extends StatefulWidget {
   const VeloraApp({super.key});
 
   @override
+  State<VeloraApp> createState() => _VeloraAppState();
+}
+
+class _VeloraAppState extends State<VeloraApp> {
+  late final Listenable _look =
+      Listenable.merge([ThemeController.instance, LocaleController.instance]);
+
+  @override
+  void initState() {
+    super.initState();
+    _look.addListener(_lookChanged);
+  }
+
+  @override
+  void dispose() {
+    _look.removeListener(_lookChanged);
+    super.dispose();
+  }
+
+  /// The colours (`VColors.x`) and texts (`tr()`) are read from globals while
+  /// building, so a screen whose widgets are `const` or keep their own state
+  /// does not notice that they changed and stayed half dark / half Uzbek until
+  /// something rebuilt it. After the new theme is in, rebuild the whole tree.
+  void _lookChanged() {
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      void rebuild(Element element) {
+        element.markNeedsBuild();
+        element.visitChildren(rebuild);
+      }
+
+      (context as Element).visitChildren(rebuild);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge(
-          [ThemeController.instance, LocaleController.instance]),
-      builder: (context, _) => MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Velora Club',
-        theme: buildTheme(),
-        home: const _AuthGate(),
-      ),
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Velora Club',
+      theme: buildTheme(),
+      home: const _AuthGate(),
     );
   }
 }
