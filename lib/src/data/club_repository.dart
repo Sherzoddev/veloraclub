@@ -159,6 +159,18 @@ class ClubRepository {
             .limit(300),
       );
 
+  /// The latest bookings of every status (started, cancelled and past ones
+  /// too), newest first: what the "Barchasi" view of the bookings page shows.
+  Future<List<Map<String, dynamic>>> recentReservations(String clubId) async =>
+      rowList(
+        await client
+            .from('reservations')
+            .select('*, resources(name), customers(full_name,phone)')
+            .eq('club_id', clubId)
+            .order('starts_at', ascending: false)
+            .limit(200),
+      );
+
   Future<List<Map<String, dynamic>>> waitlist(String clubId) async => rowList(
         await client.rpc('waitlist_list', params: {'p_club_id': clubId}),
       );

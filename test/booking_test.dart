@@ -51,6 +51,49 @@ void main() {
     });
   });
 
+  group('bookings page', () {
+    setUpAll(setUpLayoutTests);
+
+    testWidgets('shows the open ones, and every kind after "Barchasi"',
+        (tester) async {
+      tester.view.physicalSize = const Size(2560, 4800);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+
+      final errors = LayoutErrors()..start();
+      final controller = fakeController(page: 2);
+      try {
+        await tester.pumpWidget(MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: buildTheme(),
+          home: ListenableBuilder(
+            listenable: controller,
+            builder: (_, __) => DashboardShell(controller: controller),
+          ),
+        ));
+        await settle(tester);
+        // The test data holds waiting, confirmed, started and cancelled ones.
+        expect(find.text('PENDING'), findsWidgets);
+        expect(find.text('CONFIRMED'), findsWidgets);
+        expect(find.text('ARRIVED'), findsNothing);
+        expect(find.text('CANCELLED'), findsNothing);
+
+        await tester.tap(find.text('Barchasi'));
+        await settle(tester);
+        expect(find.text('ARRIVED'), findsWidgets);
+        expect(find.text('CANCELLED'), findsWidgets);
+
+        await tester.tap(find.text('Dolzarb'));
+        await settle(tester);
+        expect(find.text('ARRIVED'), findsNothing);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        await settle(tester);
+        errors.stop();
+      }
+    });
+  });
+
   group('table cards', () {
     setUpAll(setUpLayoutTests);
 
