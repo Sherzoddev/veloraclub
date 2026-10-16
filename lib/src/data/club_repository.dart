@@ -121,14 +121,96 @@ class ClubRepository {
           .eq('active', true)
           .order('sort_order', ascending: true));
 
-  Future<List<Map<String, dynamic>>> customers(String clubId) async => rowList(
-        await client
-            .from('customers')
-            .select('*, loyalty_tiers!customers_tier_id_fkey(*)')
+  /// Each customer also carries the "6 visits = 1 free hour" promo state:
+  /// `promo_visits` (visits counted towards the next coupon) and `coupon`
+  /// (the active one, if any) -- every picker shows it.
+  Future<List<Map<String, dynamic>>> customers(String clubId) async {
+    final rows = rowList(
+      await client
+          .from('customers')
+          .select('*, loyalty_tiers!customers_tier_id_fkey(*)')
+          .eq('club_id', clubId)
+          .isFilter('archived_at', null)
+          .order('created_at', ascending: false),
+    );
+    try {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final results = await Future.wait([
+        client
+            .from('customer_coupons')
+            .select('id,customer_id,code,expires_at,hour_from,hour_to,free_minutes')
             .eq('club_id', clubId)
-            .isFilter('archived_at', null)
-            .order('created_at', ascending: false),
-      );
+            .eq('status', 'ACTIVE')
+            .gt('expires_at', now),
+        client
+            .from('customer_promo_visits')
+            .select('customer_id')
+            .eq('club_id', clubId)
+            .isFilter('coupon_id', null),
+      ]);
+      final coupons = {
+        for (final c in rowList(results[0])) '${c['customer_id']}': c
+      };
+      final visits = <String, int>{};
+      for (final v in rowList(results[1])) {
+        final id = '${v['customer_id']}';
+        visits[id] = (visits[id] ?? 0) + 1;
+      }
+      for (final c in rows) {
+        final id = '${c['id']}';
+        c['promo_visits'] = visits[id] ?? 0;
+        if (coupons[id] != null) c['coupon'] = coupons[id];
+      }
+    } catch (_) {
+      // The promo is an extra: the customer list must load without it.
+    }
+    return rows;
+  }
+
+  Future<Map<String, dynamic>?> promoSettings(String clubId) async {
+    final row = await client
+        .from('club_visit_promos')
+        .select()
+        .eq('club_id', clubId)
+        .maybeSingle();
+    return row == null ? null : Map<String, dynamic>.from(row);
+  }
+
+  Future<Map<String, dynamic>> savePromoSettings(
+          String clubId, Map<String, dynamic> settings) async =>
+      rowMap(await client.rpc('promo_save_settings',
+          params: {'p_club_id': clubId, 'p_settings': settings}));
+
+  /// Progress and coupons of the order's customer, or null (no customer, no
+  /// promo in this club).
+  Future<Map<String, dynamic>?> promoOrderState(String orderId) async {
+    final row =
+        await client.rpc('promo_order_state', params: {'p_order_id': orderId});
+    return row is Map ? Map<String, dynamic>.from(row) : null;
+  }
+
+  Future<Map<String, dynamic>?> promoCustomerState(String customerId) async {
+    final row = await client
+        .rpc('promo_customer_state', params: {'p_customer_id': customerId});
+    return row is Map ? Map<String, dynamic>.from(row) : null;
+  }
+
+  Future<Map<String, dynamic>> applyCoupon(String orderId, String couponId) async =>
+      rowMap(await client.rpc('promo_apply_coupon',
+          params: {'p_order_id': orderId, 'p_coupon_id': couponId}));
+
+  Future<Map<String, dynamic>> releaseCoupon(String orderId) async => rowMap(
+      await client.rpc('promo_release_coupon', params: {'p_order_id': orderId}));
+
+  Future<Map<String, dynamic>?> promoStats(
+      String clubId, DateTime from, DateTime to) async {
+    final row = await client.rpc('promo_stats', params: {
+      'p_club_id': clubId,
+      'p_from': from.toUtc().toIso8601String(),
+      'p_to': to.toUtc().toIso8601String(),
+    });
+    return row is Map ? Map<String, dynamic>.from(row) : null;
+  }
 
   Future<List<Map<String, dynamic>>> reservations(String clubId) async =>
       rowList(
@@ -499,7 +581,13 @@ class ClubRepository {
         },
       );
 
-  RealtimeChannel subscribeClub(String clubId, void Function() refresh) {
+  RealtimeChannel subscribeClub(String clubId, void Function() refresh,
+      {void Function()? onCustomers}) {
+    void customersChanged() {
+      onCustomers?.call();
+      refresh();
+    }
+
     return client
         .channel('desktop:$clubId')
         .onPostgresChanges(
@@ -547,7 +635,18 @@ class ClubRepository {
               type: PostgresChangeFilterType.eq,
               column: 'club_id',
               value: clubId),
-          callback: (_) => refresh(),
+          callback: (_) => customersChanged(),
+        )
+        // A coupon issued, used or burnt changes what the pickers show.
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'customer_coupons',
+          filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'club_id',
+              value: clubId),
+          callback: (_) => customersChanged(),
         )
         .subscribe();
   }

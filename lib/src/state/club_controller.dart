@@ -15,6 +15,11 @@ class ClubController extends ChangeNotifier {
   int page = 0;
   bool sidebarExpanded = true;
   int revision = 0;
+
+  /// Bumped when a customer (or their coupon) changes: the cached customer
+  /// lists in the pickers are thrown away, so a client who has just joined
+  /// through the bot can be found within a second.
+  int customersRevision = 0;
   RealtimeChannel? _channel;
 
   Future<void> initialize() async {
@@ -23,7 +28,8 @@ class ClubController extends ChangeNotifier {
     notifyListeners();
     try {
       context = await repository.loadContext();
-      _channel = repository.subscribeClub(context!.clubId, _refreshSoon);
+      _channel = repository.subscribeClub(context!.clubId, _refreshSoon,
+          onCustomers: () => customersRevision++);
     } catch (e) {
       error = e;
     } finally {
@@ -46,6 +52,12 @@ class ClubController extends ChangeNotifier {
     _debounce?.cancel();
     revision++;
     notifyListeners();
+  }
+
+  /// The app itself added or changed a customer.
+  void customersChanged() {
+    customersRevision++;
+    refresh();
   }
 
   Timer? _debounce;

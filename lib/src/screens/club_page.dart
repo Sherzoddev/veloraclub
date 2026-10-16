@@ -43,20 +43,25 @@ class _ClubPageState extends State<ClubPage> {
 
   // The customer list only feeds the "who is playing" pickers and can be
   // thousands of rows: it was fetched again at every refresh, and a single
-  // start of a table makes several of them. A minute-old copy is plenty.
+  // start of a table makes several of them. It is kept until a customer
+  // actually changes (realtime bumps customersRevision), a minute at most.
   List<Map<String, dynamic>>? _customers;
   DateTime _customersAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _customersRevision = -1;
 
   Future<List<Map<String, dynamic>>> _customersCached(
       ClubRepository repo, String clubId) async {
     final cached = _customers;
+    final revision = widget.controller.customersRevision;
     if (cached != null &&
+        _customersRevision == revision &&
         DateTime.now().difference(_customersAt) < const Duration(minutes: 1)) {
       return cached;
     }
     final fresh = await repo.customers(clubId);
     _customers = fresh;
     _customersAt = DateTime.now();
+    _customersRevision = revision;
     return fresh;
   }
 
