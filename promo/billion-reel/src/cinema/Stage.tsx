@@ -43,7 +43,7 @@ function useClothBump() {
 
 /** Russian billiards: every ball is ivory with its number printed twice in
  *  black; the cue ball ("биток") is a warmer cream with red dots. */
-function ballTexture(base: string, n: number, opts: { dots?: string; ink?: string } = {}) {
+export function ballTexture(base: string, n: number, opts: { dots?: string; ink?: string } = {}) {
   const c = canvas(512, 256);
   const g = c.getContext("2d")!;
   // a faint warm gradient so the ivory does not look like flat plastic
@@ -77,7 +77,7 @@ function ballTexture(base: string, n: number, opts: { dots?: string; ink?: strin
   return t;
 }
 
-const IVORY = "#f2ead6";
+export const IVORY = "#f2ead6";
 
 export function useBallTextures() {
   return useMemo(

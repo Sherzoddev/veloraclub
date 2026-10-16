@@ -66,14 +66,14 @@ function useMaterials() {
   );
 }
 
-function canvas(w: number, h: number) {
+export function canvas(w: number, h: number) {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
   return c;
 }
 
-function couponFace() {
+export function couponFace() {
   const c = canvas(900, 1500);
   const g = c.getContext("2d")!;
   g.fillStyle = "rgba(52,32,4,.92)";
@@ -102,7 +102,7 @@ function couponFace() {
   return t;
 }
 
-function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   g.beginPath();
   g.moveTo(x + r, y);
   g.arcTo(x + w, y, x + w, y + h, r);
@@ -113,7 +113,7 @@ function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number,
 }
 
 /** The phone screen: the club bot's chat with the coupon message. */
-function phoneScreen(logo: HTMLImageElement | null) {
+export function phoneScreen(logo: HTMLImageElement | null) {
   const W = 720;
   const H = 1520;
   const c = canvas(W, H);
@@ -398,7 +398,7 @@ const Confetti: React.FC<{ f: number; at: number }> = ({ f, at }) => {
   );
 };
 
-function couponShape(w: number, h: number, r: number, notch: number) {
+export function couponShape(w: number, h: number, r: number, notch: number) {
   const s = new THREE.Shape();
   s.moveTo(-w / 2 + r, -h / 2);
   s.lineTo(w / 2 - r, -h / 2);
