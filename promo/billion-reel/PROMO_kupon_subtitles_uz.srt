@@ -1,0 +1,36 @@
+1
+00:00:00,800 --> 00:00:04,800
+BILLION'da yangi aksiya!
+
+2
+00:00:05,200 --> 00:00:10,600
+Klubga olti marta keling — bir soat o'yin sizga bepul!
+
+3
+00:00:11,333 --> 00:00:15,400
+Har bir tashrifingiz hisobingizga yoziladi.
+
+4
+00:00:15,600 --> 00:00:18,733
+Oltinchi tashrif — va sovg'a sizniki!
+
+5
+00:00:19,467 --> 00:00:25,067
+Bir soatlik o'yin kuponi — butunlay bepul.
+
+6
+00:00:25,733 --> 00:00:28,533
+Kupon darhol Telegram botingizga keladi.
+
+7
+00:00:28,667 --> 00:00:31,133
+Keyingi safar ko'rsating — va bepul o'ynang!
+
+8
+00:00:31,733 --> 00:00:34,333
+Hali botda yo'qmisiz? «Start» ni bosing!
+
+9
+00:00:34,467 --> 00:00:36,667
+BILLION — sizni kutamiz!
+

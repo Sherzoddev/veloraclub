@@ -2,6 +2,7 @@ import "./index.css";
 import React from "react";
 import { Composition, Folder } from "remotion";
 import { Reel, REEL_DURATION, SCENES } from "./Reel";
+import { PromoFilm } from "./cinema/Film";
 
 export const RemotionRoot: React.FC = () => (
   <>
@@ -18,6 +19,8 @@ export const RemotionRoot: React.FC = () => (
         />
       ))}
     </Folder>
+    <Composition id="PromoFilm" component={PromoFilm} width={1080} height={1920} fps={30} durationInFrames={1110} />
+    <Composition id="PromoFilmClean" component={PromoFilm} defaultProps={{ subtitles: false }} width={1080} height={1920} fps={30} durationInFrames={1110} />
     <Composition
       id="VeloraReel"
       component={Reel}
