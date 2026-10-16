@@ -69,3 +69,6 @@ tsc_out.txt
 # Layout-test screenshots (flutter test test/layout --update-goldens)
 test/layout/goldens/
 test/layout/failures/
+
+# rendered promo videos handed to the owner (large, not source)
+promo_out/
