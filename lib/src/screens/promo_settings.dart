@@ -156,39 +156,47 @@ class _PromoSettingsState extends State<PromoSettings> {
                     _field('Soatgacha', _to),
                   ]),
                   const SizedBox(height: 14),
-                  Row(children: [
-                    Text('${tr('Aksiya tugashi')}: ',
-                        style: TextStyle(color: VColors.muted)),
-                    TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: _ends ?? DateTime(2026, 12, 1),
-                                firstDate: DateTime(2025),
-                                lastDate: DateTime(2030),
-                              );
-                              if (picked != null) {
-                                setState(() => _ends = picked);
-                              }
-                            },
-                      child: Text(_ends == null
-                          ? tr('muddatsiz')
-                          : DateFormat('dd.MM.yyyy').format(_ends!)),
-                    ),
-                    if (_ends != null)
-                      IconButton(
-                        tooltip: tr('muddatsiz'),
-                        onPressed: () => setState(() => _ends = null),
-                        icon: const Icon(Icons.close_rounded, size: 16),
-                      ),
-                    const Spacer(),
-                    FilledButton(
+                  // a Wrap, not a Row: on a phone the button goes under
+                  Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 4,
+                      runSpacing: 8,
+                      children: [
+                        Text('${tr('Aksiya tugashi')}: ',
+                            style: TextStyle(color: VColors.muted)),
+                        TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () async {
+                                  final picked = await showDatePicker(
+                                    context: context,
+                                    initialDate: _ends ?? DateTime(2026, 12, 1),
+                                    firstDate: DateTime(2025),
+                                    lastDate: DateTime(2030),
+                                  );
+                                  if (picked != null) {
+                                    setState(() => _ends = picked);
+                                  }
+                                },
+                          child: Text(_ends == null
+                              ? tr('muddatsiz')
+                              : DateFormat('dd.MM.yyyy').format(_ends!)),
+                        ),
+                        if (_ends != null)
+                          IconButton(
+                            tooltip: tr('muddatsiz'),
+                            onPressed: () => setState(() => _ends = null),
+                            icon: const Icon(Icons.close_rounded, size: 16),
+                          ),
+                      ]),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton(
                       onPressed: _busy ? null : () => _save(),
                       child: Text(tr('Saqlash')),
                     ),
-                  ]),
+                  ),
                 ],
               ),
             ),
