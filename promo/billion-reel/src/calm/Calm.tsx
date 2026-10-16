@@ -14,17 +14,18 @@ import "../fonts";
    scenes, in deep, rich colours with clean type and gold accents -- premium
    rather than cartoon. Russian billiard balls, Uzbek. 30 fps, 30 s. */
 
+// Tight cut (about 23 s): something new happens every second or so.
 export const CB = {
   HOOK: 0,
-  RING: 75,
-  GOLD: 250,
-  COUPON: 322,
-  PHONE: 470,
-  TERMS: 630,
-  END: 750,
-  LENGTH: 900,
+  RING: 60,
+  GOLD: 200,
+  COUPON: 250,
+  PHONE: 360,
+  TERMS: 476,
+  END: 566,
+  LENGTH: 690,
 };
-const ARR = (i: number) => 110 + i * 28; // ball i sits in its slot (ARR(5) = GOLD)
+const ARR = (i: number) => 85 + i * 23; // ball i sits in its slot (ARR(5) = GOLD)
 
 /** Scene colours: the floor, the fog and the page all take it, so the stage is seamless. */
 const SCENES: { at: number; color: string; deep: string }[] = [
@@ -116,7 +117,7 @@ function cameraAt(f: number): Cam {
     const dist = 1.2;
     const h = 1.7 - 0.2 * t;
     const ahead = 0.3;
-    return { p: [Math.sin(a) * dist, h, Math.cos(a) * dist], look: [-Math.sin(a) * ahead, 0.03 + 0.25 * k(f, CB.GOLD + 10, CB.COUPON), -Math.cos(a) * ahead], fov: 40 };
+    return { p: [Math.sin(a) * dist, h, Math.cos(a) * dist], look: [-Math.sin(a) * ahead, 0.03 + 0.25 * k(f, CB.GOLD + 6, CB.COUPON), -Math.cos(a) * ahead], fov: 40 };
   }
   if (f < CB.PHONE) {
     const t = k(f, CB.COUPON, CB.PHONE);
@@ -141,7 +142,10 @@ const Rig: React.FC<{ f: number }> = ({ f }) => {
   );
   const cam = camera as THREE.PerspectiveCamera;
   cam.position.set(c.p[0] + Math.sin(f * 2.3) * 0.012 * hit, c.p[1] + Math.cos(f * 2.9) * 0.01 * hit, c.p[2]);
-  cam.fov = c.fov;
+  // a short punch-in on every ball that lands in its slot
+  let punch = 0;
+  for (let i = 0; i < 6; i++) punch = Math.max(punch, interpolate(f, [ARR(i), ARR(i) + 2, ARR(i) + 10], [0, i === 5 ? 1.6 : 1, 0], clamp));
+  cam.fov = c.fov - 3 * punch;
   cam.lookAt(...c.look);
   cam.updateProjectionMatrix();
   return null;
@@ -190,7 +194,7 @@ const Popcorn: React.FC<{ f: number; look: Look }> = ({ f, look }) => (
 
 /** The ring: a ball rolls into a slot for every visit; the sixth is gold. */
 const Ring: React.FC<{ f: number; look: Look }> = ({ f, look }) => {
-  const whirl = k(f, CB.GOLD + 24, CB.COUPON, Easing.in(Easing.cubic));
+  const whirl = k(f, CB.GOLD + 16, CB.COUPON, Easing.in(Easing.cubic));
   return (
     <group>
       {Array.from({ length: 6 }, (_, i) => {
@@ -204,7 +208,7 @@ const Ring: React.FC<{ f: number; look: Look }> = ({ f, look }) => {
         );
       })}
       {Array.from({ length: 6 }, (_, i) => {
-        const start = ARR(i) - 22;
+        const start = ARR(i) - 18;
         if (f < start) return null;
         const [sx, sz] = slot(i);
         const t = k(f, start, ARR(i), out);
@@ -288,10 +292,10 @@ const Coupon: React.FC<{ f: number; look: Look }> = ({ f, look }) => {
     return g;
   }, []);
   const face = useMemo(() => couponFace(), []);
-  if (f < CB.COUPON || f > CB.PHONE + 70) return null;
-  const pop = k(f, CB.COUPON, CB.COUPON + 30, back);
-  const spin = (1 - k(f, CB.COUPON, CB.COUPON + 60, out)) * Math.PI * 6 + Math.sin(f / 20) * 0.2;
-  const fly = k(f, CB.PHONE + 30, CB.PHONE + 62, Easing.in(Easing.cubic));
+  if (f < CB.COUPON || f > CB.PHONE + 56) return null;
+  const pop = k(f, CB.COUPON, CB.COUPON + 24, back);
+  const spin = (1 - k(f, CB.COUPON, CB.COUPON + 48, out)) * Math.PI * 6 + Math.sin(f / 20) * 0.2;
+  const fly = k(f, CB.PHONE + 22, CB.PHONE + 46, Easing.in(Easing.cubic));
   const s = (0.1 + 0.9 * pop) * (1 - fly * 0.85);
   return (
     <group position={[0, 0.34 + Math.sin(f / 16) * 0.012 - fly * 0.02, fly * 0.06]} rotation={[0, spin, Math.sin(f / 26) * 0.07]} scale={s}>
@@ -328,9 +332,9 @@ const Phone: React.FC<{ f: number }> = ({ f }) => {
   }, []);
   const screen = useMemo(() => phoneScreen(logo), [logo]);
   if (f < CB.PHONE || f > CB.TERMS + 20) return null;
-  const inP = k(f, CB.PHONE, CB.PHONE + 26, back);
+  const inP = k(f, CB.PHONE, CB.PHONE + 20, back);
   const outP = k(f, CB.TERMS - 10, CB.TERMS + 20, Easing.in(Easing.cubic));
-  const msg = k(f, CB.PHONE + 58, CB.PHONE + 72, out);
+  const msg = k(f, CB.PHONE + 44, CB.PHONE + 56, out);
   return (
     <group position={[0, 0.36 - (1 - inP) * 0.9 + outP * 0.9, -0.02]} rotation={[0, (1 - inP) * -1.6 + Math.sin(f / 30) * 0.1, (1 - inP) * 0.3]}>
       <mesh geometry={body} castShadow>
@@ -371,7 +375,7 @@ const World: React.FC<{ f: number }> = ({ f }) => {
       {f >= CB.RING - 4 && f < CB.COUPON + 2 ? <Ring f={f} look={look} /> : null}
       <Confetti f={f} at={CB.COUPON} />
       <Coupon f={f} look={look} />
-      <Orbit f={f} look={look} from={CB.COUPON + 18} to={CB.PHONE + 30} />
+      <Orbit f={f} look={look} from={CB.COUPON + 14} to={CB.PHONE + 22} />
       <Phone f={f} />
       <Float f={f} look={look} />
     </>
@@ -507,7 +511,7 @@ const Terms: React.FC<{ f: number }> = ({ f }) => {
   const rows: [string, string, string][] = [
     ["🕚", "Har kuni 11:00 – 17:00", "#ffffff"],
     ["⏳", "Kupon 7 kun amal qiladi", "#ffd23f"],
-    ["✅", "60 000 so'm va 1 soatdan", "#2be38b"],
+    ["⏱", "1 soatdan ko'p o'ynang", "#2be38b"],
     ["📅", "Aksiya 1-dekabrgacha", "#2aabee"],
   ];
   return (
@@ -515,7 +519,7 @@ const Terms: React.FC<{ f: number }> = ({ f }) => {
       <Pop text="SHARTLAR" f={f} at={CB.TERMS + 2} to={CB.END - 8} size={120} />
       <div style={{ marginTop: 50, display: "flex", flexDirection: "column", gap: 34, alignItems: "center" }}>
         {rows.map(([icon, text, bg], i) => (
-          <Label key={i} f={f} at={CB.TERMS + 16 + i * 12} to={CB.END - 8} bg={bg} tilt={i % 2 ? 3 : -3} size={50}>
+          <Label key={i} f={f} at={CB.TERMS + 12 + i * 9} to={CB.END - 8} bg={bg} tilt={i % 2 ? 3 : -3} size={50}>
             {icon} {text}
           </Label>
         ))}
@@ -572,7 +576,7 @@ export const PromoCalm: React.FC = () => {
   const flash = Math.max(interpolate(f, [CB.GOLD, CB.GOLD + 1, CB.GOLD + 8], [0, 0.35, 0], clamp), interpolate(f, [CB.COUPON - 3, CB.COUPON, CB.COUPON + 12], [0, 0.75, 0], clamp));
   return (
     <AbsoluteFill style={{ background: scene.color }}>
-      <AbsoluteFill style={{ filter: f >= CB.END - 4 ? `blur(${interpolate(f, [CB.END - 4, CB.END + 20], [0, 8], clamp)}px) brightness(.7)` : undefined }}>
+      <AbsoluteFill style={{ scale: `${1 + SCENES.slice(1).reduce((m, s) => Math.max(m, interpolate(f, [s.at, s.at + 12], [0.07, 0], clamp) * (f >= s.at ? 1 : 0)), 0)}`, filter: f >= CB.END - 4 ? `blur(${interpolate(f, [CB.END - 4, CB.END + 20], [0, 8], clamp)}px) brightness(.7)` : undefined }}>
       <ThreeCanvas
         width={1080}
         height={1920}
@@ -593,21 +597,18 @@ export const PromoCalm: React.FC = () => {
 
       {/* hook */}
       <Block top={300}>
-        <Label f={f} at={4} to={CB.RING - 8} bg="#ffffff" tilt={-5} size={46}>
+        <Label f={f} at={2} to={CB.RING - 6} bg="#ffffff" tilt={-5} size={46}>
           BILLION · BILYARD KLUBI
         </Label>
         <div style={{ height: 30 }} />
-        <Pop text="YANGI" f={f} at={10} to={CB.RING - 8} size={190} />
-        <Pop text="AKSIYA!" f={f} at={20} to={CB.RING - 8} size={190} fill="gold" />
+        <Pop text="YANGI" f={f} at={6} to={CB.RING - 6} size={190} />
+        <Pop text="AKSIYA!" f={f} at={14} to={CB.RING - 6} size={190} fill="gold" />
       </Block>
 
       {/* visits */}
       <Counter f={f} />
       <Block top={1560}>
-        <Label f={f} at={CB.RING + 30} to={CB.RING + 92} bg="#ffffff" tilt={-3}>⏱ 1 soatdan ko'p o'ynang</Label>
-      </Block>
-      <Block top={1560}>
-        <Label f={f} at={CB.RING + 100} to={CB.GOLD - 6} bg="#ffd23f" tilt={3}>💳 60 000 so'mdan to'lov</Label>
+        <Label f={f} at={CB.RING + 24} to={CB.GOLD - 6} bg="#ffffff" tilt={-3}>⏱ 1 soatdan ko'p o'ynang</Label>
       </Block>
       <Block top={1560}>
         <Label f={f} at={CB.GOLD + 4} to={CB.COUPON - 6} bg="#ffd84d" tilt={-4} size={62}>6-TASHRIF — SOVG'A! 🎁</Label>
@@ -615,19 +616,32 @@ export const PromoCalm: React.FC = () => {
 
       {/* coupon */}
       <Block top={190}>
-        <Pop text="1 SOAT" f={f} at={CB.COUPON + 18} to={CB.PHONE - 8} size={170} fill="gold" />
-        <Pop text="BEPUL!" f={f} at={CB.COUPON + 28} to={CB.PHONE - 8} size={150} />
+        <Pop text="1 SOAT" f={f} at={CB.COUPON + 12} to={CB.PHONE - 8} size={170} fill="gold" />
+        <Pop text="BEPUL!" f={f} at={CB.COUPON + 20} to={CB.PHONE - 8} size={150} />
       </Block>
 
       {/* bot */}
       <Block top={170}>
-        <Pop text="KUPON" f={f} at={CB.PHONE + 8} to={CB.TERMS - 10} size={130} />
-        <Pop text="BOTGA KELADI" f={f} at={CB.PHONE + 16} to={CB.TERMS - 10} size={100} stagger={1} fill="gold" />
+        <Pop text="KUPON" f={f} at={CB.PHONE + 6} to={CB.TERMS - 10} size={130} />
+        <Pop text="BOTGA KELADI" f={f} at={CB.PHONE + 12} to={CB.TERMS - 10} size={100} stagger={1} fill="gold" />
       </Block>
       <Block top={1600}>
-        <Label f={f} at={CB.PHONE + 78} to={CB.TERMS - 12} bg="#ffffff" tilt={-3}>Kassada ko'rsating! 😉</Label>
+        <Label f={f} at={CB.PHONE + 60} to={CB.TERMS - 12} bg="#ffffff" tilt={-3}>Kassada ko'rsating! 😉</Label>
       </Block>
 
+      {/* a light streak across the coupon */}
+      {[CB.COUPON + 26, CB.COUPON + 70].map((at) =>
+        f >= at && f <= at + 16 ? (
+          <AbsoluteFill
+            key={at}
+            style={{
+              background: `linear-gradient(115deg, transparent ${interpolate(f, [at, at + 16], [-30, 100], clamp)}%, rgba(255,246,220,.35) ${interpolate(f, [at, at + 16], [-20, 110], clamp)}%, transparent ${interpolate(f, [at, at + 16], [-10, 120], clamp)}%)`,
+              mixBlendMode: "screen",
+              pointerEvents: "none",
+            }}
+          />
+        ) : null,
+      )}
       <Terms f={f} />
       <Final f={f} />
       <Wipes f={f} />

@@ -15,7 +15,7 @@ from scipy import signal
 
 SR = 48000
 FPS = 30
-LENGTH = 900
+LENGTH = 690
 DUR = LENGTH / FPS
 N = int(DUR * SR)
 tt = np.arange(N) / SR
@@ -26,10 +26,10 @@ def sec(f):
     return f / FPS
 
 
-RING, GOLD, FLASH, PHONE, TERMS, END = 75, 250, 322, 470, 630, 750
-DROPS = [0.55, 0.68, 0.8, 0.9, 1.05, 1.2, 1.32]
-ARRIVALS = [sec(110 + i * 28) for i in range(6)]
-BEAT = 0.5
+RING, GOLD, FLASH, PHONE, TERMS, END = 60, 200, 250, 360, 476, 566
+DROPS = [0.45, 0.58, 0.7, 0.8, 0.95, 1.1, 1.2]
+ARRIVALS = [sec(85 + i * 23) for i in range(6)]
+BEAT = 60 / 124
 
 
 def midi(n):
@@ -96,7 +96,7 @@ def hat(open_=False):
 
 
 drums = np.zeros(N)
-groove_on = [(sec(8), sec(GOLD) - BEAT), (sec(FLASH), sec(LENGTH) - 2.0)]
+groove_on = [(sec(6), sec(GOLD) - BEAT), (sec(FLASH), sec(LENGTH) - 1.6)]
 for a, b in groove_on:
     for i, t in enumerate(np.arange(a, b, BEAT)):
         place(drums, kick(), t, 1.0)
@@ -201,14 +201,14 @@ for i in range(40):  # sparkle of the coupon
     at = sec(FLASH) + rng.uniform(0.05, 2.5)
     place(hits, bell([int(rng.choice([82, 86, 89, 94]))], 0.4, 0.05), at)
 whoosh(sec(PHONE) + 0.6, 0.8, 0.7)
-whoosh(sec(PHONE + 50), 0.5, 0.5)
+whoosh(sec(PHONE + 36), 0.5, 0.5)
 n = int(1.0 * SR)
 u = np.arange(n) / SR
-place(hits, 0.35 * np.sin(2 * np.pi * 1318.5 * u) * env(n, 0.002, 0.22), sec(PHONE + 58))
-place(hits, 0.35 * np.sin(2 * np.pi * 1760 * u) * env(n, 0.002, 0.3), sec(PHONE + 58) + 0.12)
+place(hits, 0.35 * np.sin(2 * np.pi * 1318.5 * u) * env(n, 0.002, 0.22), sec(PHONE + 44))
+place(hits, 0.35 * np.sin(2 * np.pi * 1760 * u) * env(n, 0.002, 0.3), sec(PHONE + 44) + 0.12)
 whoosh(sec(TERMS) + 0.3, 0.6, 0.6)
 for i in range(4):
-    place(hits, click(0.5, 2400), sec(TERMS + 18 + i * 12))
+    place(hits, click(0.5, 2400), sec(TERMS + 12 + i * 9))
 place(hits, boom(3.0), sec(END), 0.9)
 place(hits, bell([60, 67, 72, 76, 79], 4.0, 0.28), sec(END))
 
