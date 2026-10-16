@@ -138,7 +138,8 @@ class ClubRepository {
       final results = await Future.wait([
         client
             .from('customer_coupons')
-            .select('id,customer_id,code,expires_at,hour_from,hour_to,free_minutes')
+            .select(
+                'id,customer_id,code,expires_at,hour_from,hour_to,free_minutes')
             .eq('club_id', clubId)
             .eq('status', 'ACTIVE')
             .gt('expires_at', now),
@@ -195,12 +196,14 @@ class ClubRepository {
     return row is Map ? Map<String, dynamic>.from(row) : null;
   }
 
-  Future<Map<String, dynamic>> applyCoupon(String orderId, String couponId) async =>
+  Future<Map<String, dynamic>> applyCoupon(
+          String orderId, String couponId) async =>
       rowMap(await client.rpc('promo_apply_coupon',
           params: {'p_order_id': orderId, 'p_coupon_id': couponId}));
 
-  Future<Map<String, dynamic>> releaseCoupon(String orderId) async => rowMap(
-      await client.rpc('promo_release_coupon', params: {'p_order_id': orderId}));
+  Future<Map<String, dynamic>> releaseCoupon(String orderId) async =>
+      rowMap(await client
+          .rpc('promo_release_coupon', params: {'p_order_id': orderId}));
 
   Future<Map<String, dynamic>?> promoStats(
       String clubId, DateTime from, DateTime to) async {

@@ -9,6 +9,7 @@ import '../state/club_controller.dart';
 import '../theme.dart';
 import '../utils.dart';
 import '../widgets/common.dart';
+import '../widgets/promo.dart';
 import '../widgets/receipt_preview.dart';
 
 /// The "Yakunlash va to'lash" sheet — shown right after a session has been
@@ -44,12 +45,16 @@ Future<void> showSessionPaymentDialog(
 }
 
 class _Data {
-  _Data(this.order, this.rounds, this.methods, this.discounts, this.customers);
+  _Data(this.order, this.rounds, this.methods, this.discounts, this.customers,
+      this.promo);
   final Map<String, dynamic> order;
   final List<Map<String, dynamic>> rounds;
   final List<Map<String, dynamic>> methods;
   final List<Map<String, dynamic>> discounts;
   final List<Map<String, dynamic>> customers;
+
+  /// "6 visits = 1 free hour" state of the order's customer, or null.
+  final Map<String, dynamic>? promo;
 }
 
 class _PaymentDialog extends StatefulWidget {
@@ -108,11 +113,41 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     final methods = await repo.paymentMethods(clubId);
     final discounts = await repo.discounts(clubId);
     final customers = await repo.customers(clubId);
-    return _Data(order, rounds, methods, discounts, customers);
+    Map<String, dynamic>? promo;
+    try {
+      promo = await repo.promoOrderState(widget.orderId);
+    } catch (_) {
+      promo = null; // the promo is an extra, never a reason not to pay
+    }
+    return _Data(order, rounds, methods, discounts, customers, promo);
+  }
+
+  // A customer who joins through the bot while this sheet is open must be
+  // findable at once: realtime bumps customersRevision, the list is re-read
+  // (only the list -- the amount being typed stays as it is).
+  List<Map<String, dynamic>>? _freshCustomers;
+  late int _customersRevision = widget.controller.customersRevision;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onController);
+  }
+
+  Future<void> _onController() async {
+    final revision = widget.controller.customersRevision;
+    if (revision == _customersRevision) return;
+    _customersRevision = revision;
+    try {
+      final fresh = await widget.controller.repository
+          .customers(widget.controller.context!.clubId);
+      if (mounted) setState(() => _freshCustomers = fresh);
+    } catch (_) {}
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_onController);
     amountCtrl.dispose();
     for (final c in _splitCtrls.values) {
       c.dispose();
@@ -138,6 +173,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               }
               final data = snap.data!;
               final order = data.order;
+              final customers = _freshCustomers ?? data.customers;
               final total = (order['total_amount'] as num?)?.toInt() ?? 0;
               if (!_amountEdited) amountCtrl.text = '$total';
               // Default to cash — the common case — so the cashier doesn't
@@ -204,7 +240,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                           return const Iterable<Map<String, dynamic>>.empty();
                         }
                         final digits = q.replaceAll(RegExp(r'\D'), '');
-                        return data.customers.where((c) {
+                        return customers.where((c) {
                           final name = '${c['full_name'] ?? ''}'.toLowerCase();
                           final phone = '${c['phone'] ?? ''}';
                           if (name.contains(q)) return true;
@@ -237,7 +273,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                           if (scanned.toUpperCase().startsWith('CARD:')) {
                             final token =
                                 scanned.substring(5).trim().toLowerCase();
-                            final byToken = data.customers.where((c) {
+                            final byToken = customers.where((c) {
                               return '${c['card_token'] ?? ''}'.toLowerCase() ==
                                   token;
                             }).toList();
@@ -250,7 +286,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                           // Legacy card format kept for already-issued QR cards.
                           if (scanned.toUpperCase().startsWith('CUST:')) {
                             final id = scanned.substring(5).trim();
-                            final byId = data.customers
+                            final byId = customers
                                 .where((c) => '${c['id']}' == id)
                                 .toList();
                             if (byId.isNotEmpty) {
@@ -261,7 +297,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                           }
                           final digits = scanned.replaceAll(RegExp(r'\D'), '');
                           if (digits.isEmpty) return;
-                          final byPhone = data.customers.where((c) {
+                          final byPhone = customers.where((c) {
                             final phone = '${c['phone'] ?? ''}'
                                 .replaceAll(RegExp(r'\D'), '');
                             return phone.isNotEmpty && phone == digits;
@@ -306,6 +342,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                         ),
                       ),
                     ),
+                    ..._promo(context, data.promo),
                     const SizedBox(height: 10),
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 260),
@@ -661,6 +698,78 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     if (points == null || points <= 0) return;
     try {
       await widget.controller.repository.redeemPoints(widget.orderId, points);
+      _amountEdited = false;
+      setState(() {
+        _future = _load();
+      });
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
+  }
+
+  List<Widget> _promo(BuildContext context, Map<String, dynamic>? promo) {
+    if (promo == null) return const [];
+    final used = usedOn(promo, widget.orderId);
+    final active = activeCoupon(promo);
+    final visits = (promo['visits'] as num?)?.toInt() ?? 0;
+    final needed = (promo['needed'] as num?)?.toInt() ?? 6;
+    if (used != null) {
+      return [
+        const SizedBox(height: 10),
+        CouponStrip(
+          coupon: used,
+          trailing: TextButton(
+            onPressed: paying ? null : () => _releaseCoupon(context),
+            child: Text(tr('Bekor qilish')),
+          ),
+        ),
+      ];
+    }
+    if (active != null) {
+      return [
+        const SizedBox(height: 10),
+        CouponStrip(
+          coupon: active,
+          trailing: FilledButton(
+            onPressed:
+                paying ? null : () => _applyCoupon(context, '${active['id']}'),
+            style: FilledButton.styleFrom(backgroundColor: promoGold),
+            child: Text(tr('Qo\'llash'),
+                style: const TextStyle(
+                    color: Colors.black, fontWeight: FontWeight.w900)),
+          ),
+        ),
+      ];
+    }
+    if (promo['enabled'] != true) return const [];
+    return [
+      const SizedBox(height: 8),
+      Row(children: [
+        Text('🎱 ${tr('Aksiya')}: ',
+            style: TextStyle(color: VColors.muted, fontSize: 13)),
+        PromoDots(visits: visits, needed: needed, size: 11),
+      ]),
+    ];
+  }
+
+  Future<void> _applyCoupon(BuildContext context, String couponId) async {
+    try {
+      await widget.controller.repository.applyCoupon(widget.orderId, couponId);
+      _amountEdited = false;
+      setState(() {
+        _future = _load();
+      });
+      if (context.mounted) showDone(context, tr('Kupon qo\'llandi'));
+    } catch (e) {
+      if (!context.mounted) return;
+      final text = promoErrorText(e);
+      text == null ? showError(context, e) : showError(context, text);
+    }
+  }
+
+  Future<void> _releaseCoupon(BuildContext context) async {
+    try {
+      await widget.controller.repository.releaseCoupon(widget.orderId);
       _amountEdited = false;
       setState(() {
         _future = _load();

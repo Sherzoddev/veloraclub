@@ -81,11 +81,12 @@ create policy customer_coupons_read on public.customer_coupons
 
 -- ------------------------------------------------------------- helpers ---
 
--- The client's language in the club bot (uz unless they picked ru).
+-- The client's language in the club bot -- the same rule as the bot's own
+-- getLang: Uzbek only when they picked it.
 create or replace function public.app_promo_lang(p_tg_id bigint)
 returns text language sql stable security definer set search_path = public as $$
-  select case when (select language from bot_state where telegram_id = p_tg_id) = 'ru'
-              then 'ru' else 'uz' end;
+  select case when (select language from bot_state where telegram_id = p_tg_id) = 'uz'
+              then 'uz' else 'ru' end;
 $$;
 
 create or replace function public.app_promo_send_client(p_club_id uuid, p_tg_id bigint, p_text text)

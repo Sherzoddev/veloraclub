@@ -5,6 +5,7 @@ import '../state/club_controller.dart';
 import '../theme.dart';
 import '../utils.dart';
 import '../widgets/common.dart';
+import '../widgets/promo.dart';
 
 class CustomersPage extends StatefulWidget {
   const CustomersPage({super.key, required this.controller});
@@ -60,7 +61,20 @@ class _CustomersPageState extends State<CustomersPage> {
                           Text(
                               '${c['visits_count']} ${tr('ta tashrif')} · ${c['bonus_points']} ${tr('ball')}',
                               style: TextStyle(
-                                  color: VColors.subtle, fontSize: 13))
+                                  color: VColors.subtle, fontSize: 13)),
+                          if (c['coupon'] is Map)
+                            Text(
+                                '🎟 ${tr('Kupon')} ${(c['coupon'] as Map)['code']}',
+                                style: const TextStyle(
+                                    color: promoGold,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 13))
+                          else if (((c['promo_visits'] as num?) ?? 0) > 0)
+                            Text('🎱 ${c['promo_visits']}/6',
+                                style: TextStyle(
+                                    color: VColors.muted,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13)),
                         ];
                         final compact = isCompactWidth(context);
                         return InkWell(
@@ -144,7 +158,7 @@ class _CustomersPageState extends State<CustomersPage> {
           'full_name': name.text.trim(),
           'phone': phone.text.trim()
         });
-        widget.controller.refresh();
+        widget.controller.customersChanged();
       } catch (e) {
         if (context.mounted) showError(context, e);
       }
@@ -181,6 +195,9 @@ class _CustomersPageState extends State<CustomersPage> {
                       _Info(tr('Qarz'), money(c['debt_amount'])),
                       _Info(tr('Jami sarflangan'), money(c['total_spent'])),
                       _Info(tr('Tashriflar'), '${c['visits_count']}'),
+                      _PromoCard(
+                          controller: widget.controller,
+                          customerId: '${c['id']}'),
                       const Divider(),
                       // Cashiers ring up sales but must not be able to hand
                       // themselves or a friend bonus points/discounts, or
@@ -595,6 +612,73 @@ class _CustomersPageState extends State<CustomersPage> {
 /// Current loyalty tier + progress toward the next one — mirrors the badge
 /// shown on the customer card in the reference design (tier name, earn %,
 /// a progress bar, and "X so'm left to reach the next tier").
+/// The customer's "6 visits = 1 free hour" progress and coupon history.
+class _PromoCard extends StatefulWidget {
+  const _PromoCard({required this.controller, required this.customerId});
+
+  final ClubController controller;
+  final String customerId;
+
+  @override
+  State<_PromoCard> createState() => _PromoCardState();
+}
+
+class _PromoCardState extends State<_PromoCard> {
+  late final Future<Map<String, dynamic>?> _future = widget
+      .controller.repository
+      .promoCustomerState(widget.customerId)
+      .catchError((_) => null);
+
+  static const _status = {
+    'ACTIVE': 'Faol',
+    'USED': 'Ishlatilgan',
+    'EXPIRED': 'Kuygan',
+  };
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>?>(
+        future: _future,
+        builder: (context, snap) {
+          final promo = snap.data;
+          if (promo == null) return const SizedBox.shrink();
+          final coupons = ((promo['coupons'] as List?) ?? const [])
+              .whereType<Map>()
+              .map((c) => Map<String, dynamic>.from(c))
+              .toList();
+          final active = activeCoupon(promo);
+          return Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Text('🎱 ${tr('Aksiya: 6 tashrif = 1 soat bepul')}',
+                      style: const TextStyle(fontWeight: FontWeight.w800)),
+                ]),
+                const SizedBox(height: 6),
+                PromoDots(
+                    visits: (promo['visits'] as num?)?.toInt() ?? 0,
+                    needed: (promo['needed'] as num?)?.toInt() ?? 6),
+                if (active != null) ...[
+                  const SizedBox(height: 8),
+                  CouponStrip(coupon: active),
+                ],
+                for (final c in coupons.where((c) => c['status'] != 'ACTIVE'))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '🎟 ${c['code']} · ${tr(_status['${c['status']}'] ?? '${c['status']}')} · ${shortDate(c['status'] == 'USED' ? c['used_at'] : c['expires_at'])}'
+                      '${c['used_amount'] != null ? ' · -${money(c['used_amount'])}' : ''}',
+                      style: TextStyle(color: VColors.muted, fontSize: 13),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      );
+}
+
 class _TierProgress extends StatelessWidget {
   const _TierProgress({required this.customer, required this.tiers});
   final Map<String, dynamic> customer;

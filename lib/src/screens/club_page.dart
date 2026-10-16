@@ -1152,7 +1152,8 @@ class _ResourceCard extends StatelessWidget {
                       setState(() {
                         customerId = id;
                         customerLabel =
-                            '${c['full_name'] ?? c['phone'] ?? 'Mijoz'}';
+                            '${c['full_name'] ?? c['phone'] ?? 'Mijoz'}'
+                            '${c['coupon'] is Map ? ' · 🎟 ${tr('kupon bor')}' : ''}';
                       });
                     },
                     icon: const Icon(Icons.person_outline_rounded),

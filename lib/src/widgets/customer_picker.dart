@@ -135,5 +135,11 @@ String _subtitle(Map<String, dynamic> c) {
     }
   }
   parts.add('${c['bonus_points'] ?? 0} ball');
+  // "6 visits = 1 free hour": the coupon first, the cashier must not miss it
+  if (c['coupon'] is Map) {
+    parts.insert(0, '🎟 KUPON');
+  } else if (((c['promo_visits'] as num?) ?? 0) > 0) {
+    parts.add('🎱 ${c['promo_visits']}/6');
+  }
   return parts.join(' · ');
 }

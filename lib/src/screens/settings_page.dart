@@ -17,6 +17,7 @@ import '../state/club_controller.dart';
 import '../theme.dart';
 import '../utils.dart';
 import '../widgets/common.dart';
+import 'promo_settings.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.controller});
@@ -33,6 +34,7 @@ class _SettingsPageState extends State<SettingsPage> {
     'Tariflar',
     'Chek',
     'Telegram-bot',
+    'Aksiya',
     'Rele',
     'Token',
   ];
@@ -52,41 +54,16 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 10),
           SizedBox(
             height: 42,
-            child: ListView.builder(
+            // Seven short tabs: all built at once (a lazy list left the
+            // last ones unbuilt on a phone, so they could not be reached).
+            child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               padding: EdgeInsets.symmetric(
                   horizontal: pagePadding(context).left - 10),
-              itemCount: tabs.length,
-              itemBuilder: (_, index) {
-                final active = index == tab;
-                return InkWell(
-                  onTap: () => setState(() => tab = index),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Center(
-                            child: Text(tabs[index],
-                                style: TextStyle(
-                                    color:
-                                        active ? VColors.green : VColors.muted,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 14)),
-                          ),
-                        ),
-                        Container(
-                          height: 2,
-                          width: active ? 22 : 0,
-                          margin: const EdgeInsets.only(bottom: 1),
-                          color: VColors.green,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+              child: Row(children: [
+                for (var index = 0; index < tabs.length; index++)
+                  _tabButton(index),
+              ]),
             ),
           ),
           Divider(height: 1, color: VColors.line),
@@ -98,6 +75,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _tariffs(),
                 _ReceiptSettings(controller: widget.controller),
                 _TelegramBotSettings(controller: widget.controller),
+                PromoSettings(controller: widget.controller),
                 _relays(),
                 _token(),
               ][tab],
@@ -105,6 +83,36 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
       );
+
+  Widget _tabButton(int index) {
+    final active = index == tab;
+    return InkWell(
+      onTap: () => setState(() => tab = index),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Center(
+                child: Text(tabs[index],
+                    style: TextStyle(
+                        color: active ? VColors.green : VColors.muted,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14)),
+              ),
+            ),
+            Container(
+              height: 2,
+              width: active ? 22 : 0,
+              margin: const EdgeInsets.only(bottom: 1),
+              color: VColors.green,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _resources() => AsyncPane<List<dynamic>>(
         future: Future.wait([
@@ -290,7 +298,8 @@ class _SettingsPageState extends State<SettingsPage> {
                 .select('id');
             if ((updated as List).isEmpty) {
               if (context.mounted) {
-                showError(context, tr('Bu sozlamani faqat klub egasi o\'zgartira oladi'));
+                showError(context,
+                    tr('Bu sozlamani faqat klub egasi o\'zgartira oladi'));
               }
               return;
             }
