@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 /** Table geometry in metres: the cloth is X (long) by Z (short), y is up. */
-export const TABLE = { L: 1.8, W: 0.9, ball: 0.03, pocket: 0.058, rail: 0.13, height: 0.8 };
+export const TABLE = { L: 1.8, W: 0.9, ball: 0.03, pocket: 0.046, rail: 0.13, height: 0.8 };
 export const BALL_R = TABLE.ball;
 
 export const POCKETS: [number, number][] = [

@@ -40,28 +40,35 @@ function useClothBump() {
   }, []);
 }
 
-const BALL_COLORS = ["#f5f1e4", "#f2c230", "#2b59c3", "#d8352b", "#5b2a8a", "#ee7a1e", "#1f8a4a", "#7a1a1a", "#181818"];
 
-function ballTexture(color: string, n: number, stripe: boolean) {
+/** Russian billiards: every ball is ivory with its number printed twice in
+ *  black; the cue ball ("биток") is a warmer cream with red dots. */
+function ballTexture(base: string, n: number, opts: { dots?: string; ink?: string } = {}) {
   const c = canvas(512, 256);
   const g = c.getContext("2d")!;
-  g.fillStyle = stripe ? "#f4f0e2" : color;
+  // a faint warm gradient so the ivory does not look like flat plastic
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, base);
+  grad.addColorStop(0.5, base);
+  grad.addColorStop(1, base);
+  g.fillStyle = grad;
   g.fillRect(0, 0, 512, 256);
-  if (stripe) {
-    g.fillStyle = color;
-    g.fillRect(0, 64, 512, 128);
-  }
   if (n > 0) {
     for (const u of [128, 384]) {
-      g.fillStyle = "#f6f2e6";
-      g.beginPath();
-      g.arc(u, 128, 46, 0, Math.PI * 2);
-      g.fill();
-      g.fillStyle = "#151515";
-      g.font = "900 62px Inter, Arial, sans-serif";
+      g.fillStyle = opts.ink ?? "#141210";
+      g.font = "800 78px Inter, Arial, sans-serif";
       g.textAlign = "center";
       g.textBaseline = "middle";
       g.fillText(String(n), u, 132);
+      if (n === 6 || n === 9) g.fillRect(u - 20, 172, 40, 7);
+    }
+  }
+  if (opts.dots) {
+    g.fillStyle = opts.dots;
+    for (const [u, v] of [[128, 128], [384, 128], [256, 40], [0, 128], [512, 128], [256, 216]] as const) {
+      g.beginPath();
+      g.arc(u, v, 11, 0, Math.PI * 2);
+      g.fill();
     }
   }
   const t = new THREE.CanvasTexture(c);
@@ -70,13 +77,15 @@ function ballTexture(color: string, n: number, stripe: boolean) {
   return t;
 }
 
+const IVORY = "#f2ead6";
+
 export function useBallTextures() {
   return useMemo(
     () => ({
-      cue: ballTexture("#f5f1e4", 0, false),
-      numbered: Array.from({ length: 15 }, (_, i) => ballTexture(BALL_COLORS[1 + (i % 8)], i + 1, i >= 8)),
-      six: Array.from({ length: 6 }, (_, i) => ballTexture(BALL_COLORS[1 + i], i + 1, false)),
-      gold: ballTexture("#e5b95c", 0, false),
+      cue: ballTexture("#f3dfae", 0, { dots: "#c4262b" }),
+      numbered: Array.from({ length: 15 }, (_, i) => ballTexture(IVORY, i + 1)),
+      six: Array.from({ length: 6 }, (_, i) => ballTexture(IVORY, i + 1)),
+      gold: ballTexture("#e5b95c", 6, { ink: "#5a3c0c" }),
     }),
     [],
   );

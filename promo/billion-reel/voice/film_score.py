@@ -25,7 +25,7 @@ def sec(frame):
     return frame / FPS
 
 
-STRIKE = sec(190)
+STRIKE = sec(96)
 TICKS = [sec(330 + s + 20) for s in (12, 42, 72, 102, 132, 162)]
 TICKET = sec(570)
 TICKET_LAND = sec(616)

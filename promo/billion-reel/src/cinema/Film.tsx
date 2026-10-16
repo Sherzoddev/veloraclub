@@ -17,14 +17,14 @@ type Key = { f: number; p: V3; look: V3; fov?: number };
 
 export const FILM = {
   A: 0, // lamp on, behind the cue ball
-  B: 150, // the break, slow motion
+  B: 70, // the break, slow motion
   C: 330, // six visits
   D: 570, // the gold coupon
   E: 760, // the coupon in the bot
   F: 940, // logo and call to action
   END: 1110,
 };
-const STRIKE = 190;
+const STRIKE = 96; // the hook: the break lands in the first 3 seconds
 const H = TABLE.height;
 const ease = Easing.bezier(0.45, 0, 0.25, 1);
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
@@ -32,8 +32,8 @@ const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 /** Camera keys. Two keys a frame apart make a cut (hidden in a dip to black). */
 const KEYS: Key[] = [
   { f: 0, p: [-1.45, H + 0.16, 0.25], look: [0.2, H + 0.03, 0], fov: 30 },
-  { f: 150, p: [-0.98, H + 0.085, 0.06], look: [0.2, H + 0.035, 0], fov: 26 },
-  { f: 190, p: [-0.7, H + 0.12, 0.36], look: [0.2, H + 0.04, 0], fov: 26 },
+  { f: 70, p: [-0.98, H + 0.085, 0.06], look: [0.2, H + 0.035, 0], fov: 26 },
+  { f: 96, p: [-0.7, H + 0.12, 0.36], look: [0.2, H + 0.04, 0], fov: 26 },
   { f: 329, p: [0.2, H + 0.22, 0.72], look: [0.45, H + 0.03, 0.05], fov: 32 },
   // six visits: from the end of the row, so the line runs up the frame and
   // the gold sixth lands nearest
@@ -64,7 +64,12 @@ const Rig: React.FC<{ frame: number }> = ({ frame }) => {
   const { camera } = useThree();
   const c = cameraAt(frame);
   // a hand-held breath
-  const sway = [Math.sin(frame / 47) * 0.004, Math.sin(frame / 61) * 0.003, 0] as const;
+  const kick = interpolate(frame, [STRIKE, STRIKE + 2, STRIKE + 18], [0, 1, 0], clamp);
+  const sway = [
+    Math.sin(frame / 47) * 0.004 + Math.sin(frame * 2.7) * 0.012 * kick,
+    Math.sin(frame / 61) * 0.003 + Math.cos(frame * 3.1) * 0.009 * kick,
+    0,
+  ] as const;
   const cam = camera as THREE.PerspectiveCamera;
   cam.position.set(c.p[0] + sway[0], c.p[1] + sway[1], c.p[2]);
   cam.fov = c.fov;
@@ -76,7 +81,7 @@ const Rig: React.FC<{ frame: number }> = ({ frame }) => {
 const World: React.FC<{ frame: number }> = ({ frame }) => {
   const lamp =
     frame < FILM.B
-      ? interpolate(frame, [0, 46], [0.02, 1], { ...clamp, easing: Easing.out(Easing.quad) })
+      ? interpolate(frame, [0, 24], [0.05, 1], { ...clamp, easing: Easing.out(Easing.quad) })
       : frame >= FILM.D && frame < FILM.E
         ? interpolate(frame, [FILM.D, FILM.D + 30], [0.8, 1.1], clamp)
         : 1;
@@ -124,8 +129,8 @@ const Vignette: React.FC = () => (
 
 const CUTS = [FILM.C, FILM.D, FILM.E, FILM.F];
 const Dips: React.FC<{ frame: number }> = ({ frame }) => {
-  let o = interpolate(frame, [0, 18], [1, 0], clamp);
-  for (const c of CUTS) o = Math.max(o, interpolate(frame, [c - 9, c, c + 9], [0, 1, 0], clamp));
+  let o = interpolate(frame, [0, 10], [1, 0], clamp);
+  for (const c of CUTS) o = Math.max(o, interpolate(frame, [c - 5, c, c + 5], [0, 1, 0], clamp));
   o = Math.max(o, interpolate(frame, [FILM.END - 14, FILM.END], [0, 1], clamp));
   return <AbsoluteFill style={{ background: "#000", opacity: o }} />;
 };
@@ -144,8 +149,8 @@ const Title: React.FC<{
   style?: React.CSSProperties;
 }> = ({ frame, from, to, top, children, style }) => {
   if (frame < from || frame > to + 14) return null;
-  const p = rise(frame, from, 22);
-  const o = Math.min(p, fadeOut(frame, to));
+  const p = rise(frame, from, 16);
+  const o = Math.min(p, fadeOut(frame, to, 8));
   return (
     <div
       style={{
@@ -156,8 +161,8 @@ const Title: React.FC<{
         textAlign: "center",
         fontFamily: FONT,
         opacity: o,
-        translate: `0 ${(1 - p) * 26}px`,
-        filter: `blur(${(1 - p) * 10}px)`,
+        scale: `${1 + (1 - p) * 0.35}`,
+        filter: `blur(${(1 - p) * 14}px)`,
         ...style,
       }}
     >
@@ -188,10 +193,23 @@ const Counter: React.FC<{ frame: number }> = ({ frame }) => {
   const n = starts.filter((s) => local >= s + 20).length;
   const p = rise(frame, FILM.C + 8, 20);
   const done = n >= 6;
+  // every new visit pops the number
+  const last = n > 0 ? FILM.C + starts[n - 1] + 20 : -99;
+  const pulse = interpolate(frame, [last, last + 3, last + 14], [1.35, 1.35, 1], { ...clamp, easing: Easing.out(Easing.back(2)) });
+  const burst = done ? interpolate(frame, [last, last + 26], [0, 1], clamp) : 0;
   return (
     <div style={{ position: "absolute", top: 250, left: 0, right: 0, textAlign: "center", fontFamily: FONT, opacity: p }}>
+      {done ? (
+        <div
+          style={{
+            position: "absolute", left: "50%", top: 190, width: 900, height: 900, marginLeft: -450, marginTop: -450,
+            borderRadius: "50%", scale: `${0.2 + burst * 1.1}`, opacity: (1 - burst) * 0.9,
+            background: "radial-gradient(circle, rgba(255,214,120,.65) 0%, rgba(229,185,92,.25) 35%, transparent 65%)",
+          }}
+        />
+      ) : null}
       <div style={small}>TASHRIFLAR</div>
-      <div style={{ ...big, fontSize: 210, marginTop: 6, ...(done ? gold : {}) }}>
+      <div style={{ ...big, fontSize: 210, marginTop: 6, scale: `${pulse}`, ...(done ? gold : {}) }}>
         {n}
         <span style={{ fontSize: 110, color: done ? undefined : "rgba(245,248,247,.45)" }}> / 6</span>
       </div>
@@ -319,8 +337,8 @@ const Final: React.FC<{ frame: number }> = ({ frame }) => {
 
 /** Subtitles = the voice-over (PROMO_ovoz_ssenariy.txt has the same lines). */
 export const FILM_LINES: Line[] = [
-  { text: "BILLION'da yangi aksiya!", from: 24, to: 144 },
-  { text: "Klubga olti marta keling — bir soat o'yin sizga bepul!", from: 156, to: 318 },
+  { text: "BILLION'da yangi aksiya!", from: 10, to: 92 },
+  { text: "Klubga olti marta keling — bir soat o'yin sizga bepul!", from: 104, to: 318 },
   { text: "Har bir tashrifingiz hisobingizga yoziladi.", from: 340, to: 462 },
   { text: "Oltinchi tashrif — va sovg'a sizniki!", from: 468, to: 562 },
   { text: "Bir soatlik o'yin kuponi — butunlay bepul.", from: 584, to: 752 },
@@ -354,7 +372,7 @@ export const PromoFilm: React.FC<{ subtitles?: boolean }> = ({ subtitles = true 
           pointerEvents: "none",
         }}
       />
-      <Title frame={frame} from={40} to={140} top={300}>
+      <Title frame={frame} from={8} to={88} top={300}>
         <div style={small}>BILLION · BILYARD KLUBI</div>
         <div style={{ ...big, marginTop: 18 }}>
           YANGI
@@ -362,9 +380,9 @@ export const PromoFilm: React.FC<{ subtitles?: boolean }> = ({ subtitles = true 
           <span style={gold}>AKSIYA</span>
         </div>
       </Title>
-      <Title frame={frame} from={206} to={322} top={250}>
+      <Title frame={frame} from={110} to={322} top={250}>
         <div style={{ ...big, fontSize: 104 }}>6 marta keling</div>
-        <div style={{ ...big, fontSize: 84, marginTop: 22, opacity: rise(frame, 252, 18) }}>
+        <div style={{ ...big, fontSize: 84, marginTop: 22, opacity: rise(frame, 150, 14), scale: `${1 + (1 - rise(frame, 150, 14)) * 0.4}` }}>
           1 soat o'yin — <span style={gold}>BEPUL</span>
         </div>
       </Title>
@@ -381,6 +399,14 @@ export const PromoFilm: React.FC<{ subtitles?: boolean }> = ({ subtitles = true 
       </Title>
       <BotCard frame={frame} />
       <Final frame={frame} />
+      <AbsoluteFill
+        style={{
+          background: "radial-gradient(circle at 50% 55%, #fff6e0, rgba(255,240,210,.6) 40%, transparent 75%)",
+          opacity: interpolate(frame, [STRIKE, STRIKE + 1, STRIKE + 7], [0, 0.45, 0], clamp),
+          mixBlendMode: "screen",
+          pointerEvents: "none",
+        }}
+      />
       <Vignette />
       <Grain frame={frame} />
       {subtitles ? <Subtitles lines={FILM_LINES} /> : null}
