@@ -25,7 +25,14 @@ final dialogs = <String, (int, Finder Function(), Finder Function()?)>{
   'product_edit': (7, () => find.text('Tovar qo\'shish'), null),
   'expense_new': (8, () => find.byIcon(Icons.add_rounded).first, null),
   'customer_new': (4, () => find.byIcon(Icons.person_add_alt_1_rounded), null),
-  for (final tab in ['Tariflar', 'Chek', 'Telegram-bot', 'Rele', 'Token'])
+  for (final tab in [
+    'Tariflar',
+    'Chek',
+    'Telegram-bot',
+    'Aksiya',
+    'Rele',
+    'Token'
+  ])
     'settings_$tab': (12, () => find.text(tab).last, null),
 };
 
