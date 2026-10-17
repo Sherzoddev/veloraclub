@@ -1,0 +1,65 @@
+# Builds the iPhone app on a macOS runner. The .ipa is NOT signed (no paid
+# Apple Developer account): install it on an iPhone with AltStore or
+# Sideloadly using a free Apple ID (re-sign every 7 days). Every build is an
+# artifact; a build of main is also published as the "ios-latest" release.
+name: iOS IPA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'ios/**'
+      - 'assets/**'
+      - 'pubspec.*'
+      - '.github/workflows/ios-ipa.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-ipa.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build (unsigned)
+        run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
+
+      # An .ipa is a zip with Payload/<app>.app inside.
+      - name: Package .ipa
+        run: |
+          rm -rf Payload VeloraClub.ipa
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/Runner.app
+          zip -qry VeloraClub.ipa Payload
+          ls -lh VeloraClub.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VeloraClub-ipa
+          path: VeloraClub.ipa
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-latest
+          name: Velora Club iPhone (latest, unsigned)
+          prerelease: false
+          make_latest: false
+          files: VeloraClub.ipa
