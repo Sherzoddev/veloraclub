@@ -6,9 +6,39 @@ import '../theme.dart';
 import '../utils.dart';
 import '../widgets/common.dart';
 
-class ReservationsPage extends StatelessWidget {
+class ReservationsPage extends StatefulWidget {
   const ReservationsPage({super.key, required this.controller});
   final ClubController controller;
+
+  @override
+  State<ReservationsPage> createState() => _ReservationsPageState();
+}
+
+class _ReservationsPageState extends State<ReservationsPage> {
+  // "Dolzarb": waiting and confirmed bookings that are not long over.
+  // "Barchasi": the recent ones of every kind, started and cancelled too.
+  bool _all = false;
+  Future<List<Map<String, dynamic>>>? _future;
+  int _futureRevision = -1;
+  bool _futureAll = false;
+
+  ClubController get controller => widget.controller;
+
+  // One fetch per refresh of the club or change of the filter, not per
+  // rebuild of the page.
+  Future<List<Map<String, dynamic>>> _data() {
+    final revision = controller.revision;
+    if (_future == null || _futureRevision != revision || _futureAll != _all) {
+      _futureRevision = revision;
+      _futureAll = _all;
+      final repo = controller.repository;
+      final clubId = controller.context!.clubId;
+      _future = _all
+          ? repo.recentReservations(clubId)
+          : repo.openReservations(clubId);
+    }
+    return _future!;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +49,16 @@ class ReservationsPage extends StatelessWidget {
           PageHeader(
             title: tr('Bronlar'),
             actions: [
+              SegmentedButton<bool>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(value: false, label: Text(tr('Dolzarb'))),
+                  ButtonSegment(value: true, label: Text(tr('Barchasi'))),
+                ],
+                selected: {_all},
+                onSelectionChanged: (value) =>
+                    setState(() => _all = value.first),
+              ),
               FilledButton.icon(
                 onPressed: () => _newReservation(context),
                 icon: const Icon(Icons.add_rounded),
@@ -29,12 +69,12 @@ class ReservationsPage extends StatelessWidget {
           const SizedBox(height: 22),
           Expanded(
             child: AsyncPane<List<Map<String, dynamic>>>(
-              future: controller.repository
-                  .openReservations(controller.context!.clubId),
+              future: _data(),
               builder: (context, rows) {
                 // Waiting and confirmed ones only: a booking disappears from
                 // here once the client starts playing (or it is cancelled).
-                final visible = rows.where(bookingIsOpen).toList();
+                final visible =
+                    _all ? rows : rows.where(bookingIsOpen).toList();
                 if (visible.isEmpty) {
                   return EmptyState(
                       icon: Icons.event_available_outlined,

@@ -145,6 +145,7 @@ const Map<String, String> _ru = {
   'Zal xaritasi': 'Карта зала',
   'ta band': 'занято из',
   'Barchasi': 'Все',
+  'Dolzarb': 'Актуальные',
   'Barcha zonalar': 'Все зоны',
   'Zonasiz': 'Без зоны',
   'Bilyard': 'Бильярд',
