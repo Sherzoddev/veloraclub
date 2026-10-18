@@ -271,7 +271,6 @@ const adminKeyboard = {
     [{ text: ADMIN.broadcast }],
   ],
   resize_keyboard: true,
-  is_persistent: true,
 };
 
 const MINI_APP_URL = "https://velora-club-miniapp-production.up.railway.app/";
@@ -292,7 +291,6 @@ const clientKeyboardFor = (lang: Lang, clubId?: string) => ({
     [{ text: clientLabel("invite", lang) }, { text: clientLabel("lang", lang) }],
   ],
   resize_keyboard: true,
-  is_persistent: true,
 });
 
 const contactKeyboardFor = (lang: Lang) => ({
