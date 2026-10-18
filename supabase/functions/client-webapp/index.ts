@@ -144,7 +144,7 @@ Deno.serve(async (req: Request) => {
     };
 
     if (action === "bootstrap" || action === "me") {
-      const [card, clubResult, botResult, shiftResult, tiersResult, termsResult, unreadResult, matchesResult, tournamentsResult] = await Promise.all([
+      const [card, clubResult, botResult, shiftResult, tiersResult, termsResult, unreadResult, matchesResult, tournamentsResult, promotionsResult, visitPromoResult] = await Promise.all([
         playerCard(),
         client.from("clubs").select("id,name,phone,address,latitude,longitude,bot_welcome_photo_url,timezone,card_design").eq("id", clubId).single(),
         client.from("club_bots").select("bot_username").eq("club_id", clubId).eq("active", true).limit(1).maybeSingle(),
@@ -173,7 +173,17 @@ Deno.serve(async (req: Request) => {
         // "Турниры" tile on the club screen.
         client.from("tournaments").select("id", { count: "exact", head: true })
           .eq("club_id", clubId).gt("starts_at", new Date().toISOString()),
+        // "Акции" tile: the club's promo posts (admin Mini App) and the
+        // "N visits = free hour" promo, so guests and cardless clients see it too.
+        client.from("promotions").select("id,title,body,photo_url")
+          .eq("club_id", clubId).eq("active", true).order("sort_order").order("created_at", { ascending: false }).limit(20),
+        client.from("club_visit_promos")
+          .select("enabled,visits_needed,min_amount,min_minutes,free_minutes,hour_from,hour_to,ends_at")
+          .eq("club_id", clubId).maybeSingle(),
       ]);
+      const visitPromo = visitPromoResult.data;
+      const visitPromoLive = Boolean(visitPromo?.enabled &&
+        (!visitPromo.ends_at || new Date(visitPromo.ends_at).getTime() > Date.now()));
       const lateUntilActive = clubConfig.late_until && new Date(clubConfig.late_until).getTime() > Date.now();
       // bot_player_card now returns the active reservation inline (see
       // bot_perf_and_referral_notify migration) — this used to be a second,
@@ -207,6 +217,8 @@ Deno.serve(async (req: Request) => {
         unreadChat: (unreadResult as { count?: number | null }).count ?? 0,
         openMatches: matchesResult.count ?? 0,
         upcomingTournaments: tournamentsResult.count ?? 0,
+        promotions: promotionsResult.data ?? [],
+        visitPromo: visitPromoLive ? visitPromo : null,
       });
     }
 
