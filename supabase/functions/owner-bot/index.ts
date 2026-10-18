@@ -150,6 +150,7 @@ const MENU = {
   staff: "➕ Сотрудники",
   ratings: "⭐ Оценки",
   photo: "🖼 Фото приветствия",
+  broadcast: "📣 Рассылка клиентам",
 } as const;
 
 const mainKeyboard = {
@@ -158,6 +159,7 @@ const mainKeyboard = {
     [{ text: MENU.chart }, { text: MENU.top }],
     [{ text: MENU.stock }, { text: MENU.staff }],
     [{ text: MENU.ratings }, { text: MENU.photo }],
+    [{ text: MENU.broadcast }],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -758,6 +760,133 @@ async function showOwnerAccessList(sb: SupabaseClient, cfg: OwnerBotConfig, chat
   );
 }
 
+// ------------------------------------------------------------ broadcast
+// The owner sends anything here (text, photo, video, a file) and the club's
+// client bot sends it to every client. A file id belongs to the bot that
+// received it, so the file is fetched from this bot once, uploaded through
+// the client bot for the first client, and that upload's id is reused for
+// everyone else.
+
+async function clubBotToken(sb: SupabaseClient, clubId: string): Promise<string | null> {
+  const { data } = await sb.from("club_bots").select("bot_token").eq("club_id", clubId).eq("active", true).limit(1).maybeSingle();
+  return (data?.bot_token as string | undefined) ?? null;
+}
+
+async function broadcastRecipients(sb: SupabaseClient, clubId: string): Promise<number[]> {
+  const out: number[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from("club_bot_users").select("chat_id")
+      .eq("club_id", clubId).eq("role", "CLIENT").not("chat_id", "is", null)
+      .range(from, from + 999);
+    if (error) throw error;
+    for (const r of data ?? []) out.push(Number(r.chat_id));
+    if (!data || data.length < 1000) break;
+  }
+  return [...new Set(out)];
+}
+
+type Outgoing = {
+  kind: "text" | "photo" | "video" | "animation" | "document" | "voice";
+  file_id?: string;
+  file_name?: string;
+  text?: string;
+  entities?: unknown[];
+};
+
+/** What an incoming message carries, in a form the client bot can resend. */
+function outgoingOf(msg: Record<string, any>): Outgoing | null {
+  const caption = msg.caption as string | undefined;
+  const entities = (msg.caption_entities ?? msg.entities) as unknown[] | undefined;
+  if (msg.video) return { kind: "video", file_id: msg.video.file_id, file_name: msg.video.file_name ?? "video.mp4", text: caption, entities };
+  if (msg.animation) return { kind: "animation", file_id: msg.animation.file_id, file_name: msg.animation.file_name ?? "animation.mp4", text: caption, entities };
+  if (msg.photo?.length) return { kind: "photo", file_id: msg.photo[msg.photo.length - 1].file_id, file_name: "photo.jpg", text: caption, entities };
+  if (msg.document) return { kind: "document", file_id: msg.document.file_id, file_name: msg.document.file_name ?? "file", text: caption, entities };
+  if (msg.voice) return { kind: "voice", file_id: msg.voice.file_id, file_name: "voice.ogg", text: caption, entities };
+  if (msg.text) return { kind: "text", text: msg.text, entities };
+  return null;
+}
+
+const SEND_METHOD: Record<Outgoing["kind"], string> = {
+  text: "sendMessage", photo: "sendPhoto", video: "sendVideo", animation: "sendAnimation",
+  document: "sendDocument", voice: "sendVoice",
+};
+
+async function runBroadcast(sb: SupabaseClient, cfg: OwnerBotConfig, chatId: number, out: Outgoing) {
+  const clientToken = await clubBotToken(sb, cfg.club_id);
+  if (!clientToken) {
+    await send(cfg.bot_token, chatId, "⚠️ У клуба не подключён клиентский бот — рассылать некуда.", { reply_markup: mainKeyboard });
+    return;
+  }
+  const recipients = await broadcastRecipients(sb, cfg.club_id);
+  const method = SEND_METHOD[out.kind];
+  const extra: Record<string, unknown> = {};
+  if (out.kind === "text") {
+    extra.text = out.text ?? "";
+    if (out.entities) extra.entities = out.entities;
+  } else {
+    if (out.text) extra.caption = out.text;
+    if (out.entities) extra.caption_entities = out.entities;
+    if (out.kind === "video") extra.supports_streaming = true;
+  }
+
+  // Media: download once from this bot.
+  let bytes: Uint8Array | null = null;
+  if (out.kind !== "text") {
+    const info = await (await fetch(`https://api.telegram.org/bot${cfg.bot_token}/getFile?file_id=${encodeURIComponent(out.file_id ?? "")}`)).json();
+    if (!info?.ok) {
+      await send(cfg.bot_token, chatId, "⚠️ Файл больше 20 МБ — Telegram не отдаёт его боту. Сожмите видео или отправьте рассылку из клиентского бота.", { reply_markup: mainKeyboard });
+      return;
+    }
+    bytes = new Uint8Array(await (await fetch(`https://api.telegram.org/file/bot${cfg.bot_token}/${info.result.file_path}`)).arrayBuffer());
+  }
+
+  let fileId: string | null = null; // the client bot's own id after the first upload
+  let sent = 0;
+  let failed = 0;
+  const started = Date.now();
+  for (const to of recipients) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let res: Response;
+      if (out.kind !== "text" && !fileId) {
+        const form = new FormData();
+        form.append("chat_id", String(to));
+        for (const [k, v] of Object.entries(extra)) form.append(k, typeof v === "string" ? v : JSON.stringify(v));
+        form.append(out.kind, new Blob([bytes!]), out.file_name ?? "file");
+        res = await fetch(`https://api.telegram.org/bot${clientToken}/${method}`, { method: "POST", body: form });
+      } else {
+        const body: Record<string, unknown> = { chat_id: to, ...extra };
+        if (out.kind !== "text") body[out.kind] = fileId;
+        res = await fetch(`https://api.telegram.org/bot${clientToken}/${method}`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        });
+      }
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json?.ok) {
+        sent++;
+        if (out.kind !== "text" && !fileId) {
+          const m = json.result ?? {};
+          fileId = out.kind === "photo" ? m.photo?.[m.photo.length - 1]?.file_id : m[out.kind]?.file_id ?? null;
+        }
+        break;
+      }
+      const wait = Number(json?.parameters?.retry_after ?? 0);
+      if (res.status === 429 && wait > 0 && attempt < 2) {
+        await new Promise((r) => setTimeout(r, (wait + 1) * 1000));
+        continue;
+      }
+      failed++; // blocked the bot, deleted the account, ...
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  const secs = Math.round((Date.now() - started) / 1000);
+  await send(
+    cfg.bot_token, chatId,
+    `📣 <b>Рассылка завершена</b>\n${DIVIDER}\n✅ Доставлено: <b>${sent}</b>\n⚠️ Не доставлено: <b>${failed}</b> (заблокировали бота или удалили аккаунт)\n⏱ ${secs} с`,
+    { reply_markup: mainKeyboard },
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("ok");
 
@@ -817,6 +946,23 @@ Deno.serve(async (req) => {
       if (!hasAccess) return new Response("ok");
 
       if (data === "noop") return new Response("ok");
+      if (data === "bc:go" || data === "bc:cancel") {
+        if (!isOwner) return new Response("ok");
+        const pending = await getPending(sb, cfg.owner_bot_id, fromId);
+        // cleared first: a second tap finds nothing to send
+        await setPending(sb, cfg.owner_bot_id, fromId, null);
+        if (data === "bc:cancel") {
+          await send(token, chatId, "Рассылка отменена.", { reply_markup: mainKeyboard });
+          return new Response("ok");
+        }
+        if (pending?.action !== "broadcast_confirm") {
+          await send(token, chatId, "Нет сообщения для рассылки — нажмите «📣 Рассылка клиентам» ещё раз.", { reply_markup: mainKeyboard });
+          return new Response("ok");
+        }
+        await send(token, chatId, "⏳ Рассылка началась — пришлю итог, когда закончу.", { reply_markup: mainKeyboard });
+        waitUntil(runBroadcast(sb, cfg, chatId, pending.payload as Outgoing).catch((e) => console.error("broadcast", e)));
+        return new Response("ok");
+      }
       if (data === "menu") {
         await setPending(sb, cfg.owner_bot_id, fromId, null);
         await send(token, chatId, `🏢 <b>${cfg.club_name}</b>`, { reply_markup: mainKeyboard });
@@ -952,6 +1098,34 @@ Deno.serve(async (req) => {
       return new Response("ok");
     }
 
+    if (msg && isOwner) {
+      const raw = String(msg.text ?? "").trim();
+      const pending = await getPending(sb, cfg.owner_bot_id, fromId);
+      if (pending?.action === "broadcast_wait" || pending?.action === "broadcast_confirm") {
+        if (raw.startsWith("/") || (Object.values(MENU) as string[]).includes(raw)) {
+          await setPending(sb, cfg.owner_bot_id, fromId, null); // another button: the broadcast is dropped
+        } else if (pending.action === "broadcast_wait") {
+          const out = outgoingOf(msg);
+          if (!out) {
+            await send(token, chatId, "Отправьте текст, фото, видео или файл.");
+            return new Response("ok");
+          }
+          const recipients = await broadcastRecipients(sb, cfg.club_id);
+          await setPending(sb, cfg.owner_bot_id, fromId, "broadcast_confirm", out);
+          await send(token, chatId, `👆 Так увидят клиенты в боте клуба.\nОтправить <b>${recipients.length}</b> клиентам?`, {
+            reply_to_message_id: msg.message_id,
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: `✅ Отправить всем (${recipients.length})`, callback_data: "bc:go" }],
+                [{ text: "❌ Отмена", callback_data: "bc:cancel" }],
+              ],
+            },
+          });
+          return new Response("ok");
+        }
+      }
+    }
+
     if (msg?.photo && isOwner) {
       const pending = await getPending(sb, cfg.owner_bot_id, fromId);
       if (pending?.action === "await_welcome_photo") {
@@ -1032,6 +1206,17 @@ Deno.serve(async (req) => {
         if (!isOwner) return new Response("ok");
         await askWelcomePhoto(sb, cfg, chatId, fromId);
         return new Response("ok");
+      case MENU.broadcast: {
+        if (!isOwner) return new Response("ok");
+        const recipients = await broadcastRecipients(sb, cfg.club_id);
+        await setPending(sb, cfg.owner_bot_id, fromId, "broadcast_wait");
+        await send(
+          token, chatId,
+          `📣 <b>Рассылка клиентам</b>\n${DIVIDER}\nОтправьте сюда сообщение: текст, фото, видео (до 20 МБ) или файл — с подписью, если нужно. Его получат все клиенты в боте клуба.\n\nПолучателей сейчас: <b>${recipients.length}</b>`,
+          { reply_markup: { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "bc:cancel" }]] } },
+        );
+        return new Response("ok");
+      }
     }
 
     await send(token, chatId, `🏢 <b>${cfg.club_name}</b>`, { reply_markup: mainKeyboard });
