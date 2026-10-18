@@ -1,11 +1,11 @@
 import "./index.css";
 import React from "react";
-import { Composition, Folder } from "remotion";
+import { Composition, Folder, Still } from "remotion";
 import { Reel, REEL_DURATION, SCENES } from "./Reel";
 import { PromoFilm } from "./cinema/Film";
 import { M, PromoMotion } from "./motion/Motion";
 import { B, PromoBright } from "./bright/Bright";
-import { CB, PromoCalm } from "./calm/Calm";
+import { CalmCover, CB, PromoCalm } from "./calm/Calm";
 
 export const RemotionRoot: React.FC = () => (
   <>
@@ -27,6 +27,7 @@ export const RemotionRoot: React.FC = () => (
     <Composition id="PromoMotion" component={PromoMotion} width={1080} height={1920} fps={30} durationInFrames={M.LENGTH} />
     <Composition id="PromoBright" component={PromoBright} width={1080} height={1920} fps={30} durationInFrames={B.LENGTH} />
     <Composition id="PromoCalm" component={PromoCalm} width={1080} height={1920} fps={30} durationInFrames={CB.LENGTH} />
+    <Still id="CalmCover" component={CalmCover} width={1080} height={1920} />
     <Composition
       id="VeloraReel"
       component={Reel}

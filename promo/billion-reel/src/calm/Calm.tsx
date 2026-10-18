@@ -132,9 +132,9 @@ function cameraAt(f: number): Cam {
   return { p: [Math.sin(a) * 1.6, 0.55, Math.cos(a) * 1.6], look: [0, 0.3, 0], fov: 40 };
 }
 
-const Rig: React.FC<{ f: number }> = ({ f }) => {
+const Rig: React.FC<{ f: number; cam?: Cam }> = ({ f, cam: fixed }) => {
   const { camera } = useThree();
-  const c = cameraAt(f);
+  const c = fixed ?? cameraAt(f);
   const hit = Math.max(
     interpolate(f, [CB.GOLD, CB.GOLD + 2, CB.GOLD + 16], [0, 1, 0], clamp),
     interpolate(f, [CB.COUPON, CB.COUPON + 2, CB.COUPON + 14], [0, 0.8, 0], clamp),
@@ -363,12 +363,12 @@ const Float: React.FC<{ f: number; look: Look }> = ({ f, look }) => {
   );
 };
 
-const World: React.FC<{ f: number }> = ({ f }) => {
+const World: React.FC<{ f: number; cam?: Cam }> = ({ f, cam }) => {
   const look = useLook();
   return (
     <>
       <Stage f={f} />
-      <Rig f={f} />
+      <Rig f={f} cam={cam} />
       <hemisphereLight args={["#ffffff", "#888888", 1.4]} />
       <directionalLight position={[0.8, 2.5, 1.2]} intensity={2.6} castShadow shadow-mapSize={[2048, 2048]} shadow-camera-left={-1.5} shadow-camera-right={1.5} shadow-camera-top={1.5} shadow-camera-bottom={-1.5} shadow-bias={-0.0004} />
       {f < CB.RING + 6 ? <Popcorn f={f} look={look} /> : null}
@@ -647,6 +647,57 @@ export const PromoCalm: React.FC = () => {
       <Wipes f={f} />
       <AbsoluteFill style={{ background: "radial-gradient(circle, #fff6df, rgba(255,226,160,.6) 60%)", opacity: flash, pointerEvents: "none" }} />
       <AbsoluteFill style={{ background: "#000", opacity: interpolate(f, [0, 4], [1, 0], clamp), pointerEvents: "none" }} />
+    </AbsoluteFill>
+  );
+};
+
+/** Reel cover (one still): the coupon with the balls around it, the offer in
+ *  big type. Everything that matters sits inside the middle 4:5 crop
+ *  (y 285..1635) that Instagram shows in the profile grid. */
+export const CalmCover: React.FC = () => {
+  const f = CB.COUPON + 64; // coupon settled, balls orbiting, confetti in the air
+  return (
+    <AbsoluteFill style={{ background: SCENES[sceneAt(f)].color }}>
+      {/* the coupon a little smaller and lower, under the headline */}
+      <AbsoluteFill>
+        <ThreeCanvas
+          width={1080}
+          height={1920}
+          shadows
+          camera={{ fov: 40, near: 0.03, far: 30, position: [0, 0.3, 2] }}
+          gl={{ antialias: true, toneMapping: THREE.NeutralToneMapping, toneMappingExposure: 1.05 }}
+        >
+          <World f={f} cam={{ p: [0, 0.5, 2.5], look: [0, 0.53, 0], fov: 34 }} />
+        </ThreeCanvas>
+      </AbsoluteFill>
+      <AbsoluteFill
+        style={{
+          background:
+            "radial-gradient(ellipse at 50% 0%, rgba(255,236,200,.18), transparent 55%), radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(0,0,0,.5) 100%), linear-gradient(180deg, rgba(0,0,0,.35) 0%, transparent 30%, transparent 70%, rgba(0,0,0,.45) 100%)",
+        }}
+      />
+      <Block top={300}>
+        <div style={{ fontSize: 34, fontWeight: 800, letterSpacing: 14, color: "rgba(245,241,230,.85)" }}>BILLION · AKSIYA</div>
+        <div style={{ fontSize: 168, fontWeight: 900, lineHeight: 0.95, letterSpacing: -5, marginTop: 18, whiteSpace: "nowrap", ...sticker("#ffffff") }}>6 TASHRIF</div>
+        <div style={{ fontSize: 112, fontWeight: 900, lineHeight: 1.05, letterSpacing: -3, marginTop: 6, whiteSpace: "nowrap", ...sticker("gold") }}>= 1 SOAT BEPUL</div>
+      </Block>
+      <Block top={1515}>
+        <div
+          style={{
+            display: "inline-block",
+            padding: "24px 44px",
+            borderRadius: 999,
+            background: "rgba(8,14,12,.6)",
+            border: "1.5px solid rgba(232,185,85,.7)",
+            color: "#f5f1e6",
+            fontSize: 46,
+            fontWeight: 800,
+            boxShadow: "0 20px 60px rgba(0,0,0,.4)",
+          }}
+        >
+          🎟 Kupon Telegram botga keladi
+        </div>
+      </Block>
     </AbsoluteFill>
   );
 };
