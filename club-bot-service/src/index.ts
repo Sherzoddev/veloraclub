@@ -233,7 +233,9 @@ const ADMIN = {
   bookings: "📅 Брони",
   top: "🏆 Клиенты",
   stats: "📊 Статистика",
+  broadcast: "📣 Рассылка",
 } as const;
+const ADMIN_BUTTONS: string[] = Object.values(ADMIN);
 
 const CLIENT_LABELS = {
   tables: { ru: "🎮 Свободные столы", uz: "🎮 Bo'sh joylar" },
@@ -266,6 +268,7 @@ const adminKeyboard = {
   keyboard: [
     [{ text: ADMIN.hall }, { text: ADMIN.bookings }],
     [{ text: ADMIN.top }, { text: ADMIN.stats }],
+    [{ text: ADMIN.broadcast }],
   ],
   resize_keyboard: true,
   is_persistent: true,
@@ -860,6 +863,31 @@ async function clientBonus(sb: SupabaseClient, club: Club, token: string, chatId
   if (Number(data.balance ?? 0) > 0) lines.push(`💰 ${L(lang, "На счету", "Hisobda")}: ${money(Number(data.balance))} ${cur}`);
   if (Number(data.debt ?? 0) > 0) lines.push(`📄 ${L(lang, "Долг", "Qarz")}: ${money(Number(data.debt))} ${cur}`);
   lines.push(`📅 ${L(lang, "Визитов", "Tashriflar")}: ${data.visits}`);
+
+  // "6 tashrif = 1 soat bepul": progress, or the coupon waiting to be used
+  const promo = data.promo;
+  const coupons: any[] = Array.isArray(promo?.coupons) ? promo.coupons : [];
+  const coupon = coupons.find((c) => c.status === "ACTIVE" && new Date(c.expires_at).getTime() > Date.now());
+  if (promo && (promo.enabled || coupon)) {
+    const needed = Number(promo.needed ?? 6);
+    const got = Math.min(needed, Number(promo.visits ?? 0));
+    const hh = (h: unknown) => String(h ?? "").padStart(2, "0");
+    lines.push("", DIVIDER, `🎱 <b>${L(lang, `Акция: ${needed} визитов = 1 час бесплатно`, `Aksiya: ${needed} tashrif = 1 soat bepul`)}</b>`);
+    if (coupon) {
+      const until = new Date(new Date(coupon.expires_at).getTime() - 60_000)
+        .toLocaleDateString("ru-RU", { timeZone: club.timezone || "Asia/Tashkent", day: "2-digit", month: "2-digit" });
+      lines.push(
+        `🎟 ${L(lang, "Ваш купон", "Kuponingiz")}: <code>${coupon.code}</code> — <b>${L(lang, "1 час бесплатно", "1 soat bepul")}</b>`,
+        `🕚 ${hh(coupon.hour_from)}:00–${hh(coupon.hour_to)}:00 · ⏳ ${L(lang, `до ${until}`, `${until} gacha`)}`,
+        L(lang, "Покажите это сообщение на кассе 😉", "Kassada ushbu xabarni ko'rsating 😉"),
+      );
+    } else {
+      lines.push(
+        `${"●".repeat(got)}${"○".repeat(Math.max(0, needed - got))}  <b>${got}/${needed}</b>`,
+        L(lang, `Ещё ${needed - got} — и 1 час игры бесплатно! 🎁`, `Yana ${needed - got} ta tashrif — 1 soat o'yin bepul! 🎁`),
+      );
+    }
+  }
   if (data.next_tier) {
     lines.push("", `✨ ${L(lang, "До уровня", "Darajagacha")} «${data.next_tier}»: <b>${money(Number(data.to_next ?? 0))} ${cur}</b>`);
   }
@@ -1448,6 +1476,88 @@ async function matchSend(
     : matchReason(res?.reason, lang), { reply_markup: clientKeyboardFor(lang, club.club_id) });
 }
 
+// ---------------------------------------------------------------- broadcast
+// An admin sends anything (text, photo, video, a file, a voice note) and it
+// is copied to every client of the club bot. Two steps -- the message, then
+// "send to N?" -- so nothing goes out by accident.
+
+async function broadcastRecipients(sb: SupabaseClient, clubId: string): Promise<number[]> {
+  const out: number[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from("club_bot_users").select("chat_id")
+      .eq("club_id", clubId).eq("role", "CLIENT").not("chat_id", "is", null)
+      .range(from, from + 999);
+    if (error) throw error;
+    for (const r of data ?? []) out.push(Number(r.chat_id));
+    if (!data || data.length < 1000) break;
+  }
+  return [...new Set(out)];
+}
+
+async function startBroadcast(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number) {
+  const recipients = await broadcastRecipients(sb, club.club_id);
+  await setPending(sb, club.club_id, tgId, "broadcast_wait");
+  await send(
+    token, chatId,
+    `📣 <b>Рассылка</b>\n${DIVIDER}\nОтправьте сообщение для клиентов: текст, фото, видео, файл или голосовое — с подписью, если нужно.\n\nПолучателей сейчас: <b>${recipients.length}</b>`,
+    { reply_markup: { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "bc:cancel" }]] } },
+  );
+}
+
+async function broadcastPreview(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, messageId: number,
+) {
+  const recipients = await broadcastRecipients(sb, club.club_id);
+  await setPending(sb, club.club_id, tgId, "broadcast_confirm", { from_chat: chatId, message_id: messageId });
+  await send(token, chatId, `👆 Так увидят клиенты.\nОтправить <b>${recipients.length}</b> клиентам?`, {
+    reply_to_message_id: messageId,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: `✅ Отправить всем (${recipients.length})`, callback_data: "bc:go" }],
+        [{ text: "❌ Отмена", callback_data: "bc:cancel" }],
+      ],
+    },
+  });
+}
+
+async function runBroadcast(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, fromChat: number, messageId: number,
+) {
+  const recipients = await broadcastRecipients(sb, club.club_id);
+  let sent = 0;
+  let failed = 0;
+  const started = Date.now();
+  for (const to of recipients) {
+    // Telegram allows about 30 messages a second per bot: stay under it.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await fetch(`https://api.telegram.org/bot${token}/copyMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: to, from_chat_id: fromChat, message_id: messageId }),
+      });
+      if (res.ok) {
+        sent++;
+        break;
+      }
+      const body: any = await res.json().catch(() => ({}));
+      const wait = Number(body?.parameters?.retry_after ?? 0);
+      if (res.status === 429 && wait > 0 && attempt < 2) {
+        await new Promise((r) => setTimeout(r, (wait + 1) * 1000));
+        continue;
+      }
+      failed++; // blocked the bot, deleted the account, ...
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  const secs = Math.round((Date.now() - started) / 1000);
+  await send(
+    token, chatId,
+    `📣 <b>Рассылка завершена</b>\n${DIVIDER}\n✅ Доставлено: <b>${sent}</b>\n⚠️ Не доставлено: <b>${failed}</b> (заблокировали бота или удалили аккаунт)\n⏱ ${secs} с`,
+    { reply_markup: adminKeyboard },
+  );
+}
+
 async function showMenu(
   sb: SupabaseClient, club: Club, token: string, chatId: number, role: string, lang: Lang, firstName: string,
 ) {
@@ -1537,6 +1647,7 @@ async function handleText(
       case ADMIN.bookings: return void adminBookings(sb, club, token, chatId);
       case ADMIN.top: return void adminTop(sb, club, token, chatId);
       case ADMIN.stats: return void adminStats(sb, club, token, chatId);
+      case ADMIN.broadcast: return void startBroadcast(sb, club, token, chatId, tgId);
     }
   }
 
@@ -1823,6 +1934,25 @@ app.post("/club-bot", async (req, res) => {
     if (cb) {
       const data = String(cb.data ?? "");
 
+      if (userRole === "ADMIN" && (data === "bc:go" || data === "bc:cancel")) {
+        const pending = await getPending(sb, c.club_id, tgId);
+        // cleared first: a second tap on the button finds nothing to send
+        await setPending(sb, c.club_id, tgId, null);
+        if (data === "bc:cancel") {
+          await send(token, chatId, "Рассылка отменена.", { reply_markup: adminKeyboard });
+          return res.send("ok");
+        }
+        if (pending?.action !== "broadcast_confirm") {
+          await send(token, chatId, "Нет сообщения для рассылки — нажмите «📣 Рассылка» ещё раз.", { reply_markup: adminKeyboard });
+          return res.send("ok");
+        }
+        await send(token, chatId, "⏳ Рассылка началась — пришлю итог, когда закончу.", { reply_markup: adminKeyboard });
+        // The process stays up: answer Telegram now, send in the background.
+        void runBroadcast(sb, c, token, chatId, Number(pending.payload.from_chat), Number(pending.payload.message_id))
+          .catch((e) => console.error("broadcast", e));
+        return res.send("ok");
+      }
+
       if (data === "noop") return res.send("ok");
 
       if (data.startsWith("rate:")) {
@@ -2066,6 +2196,20 @@ app.post("/club-bot", async (req, res) => {
       }
 
       return res.send("ok");
+    }
+
+    if (userRole === "ADMIN" && msg) {
+      const raw = String(msg.text ?? "").trim();
+      const pending = await getPending(sb, c.club_id, tgId);
+      if (pending?.action === "broadcast_wait" || pending?.action === "broadcast_confirm") {
+        if (raw.startsWith("/") || ADMIN_BUTTONS.includes(raw)) {
+          // another button: the broadcast is dropped, the button works as usual
+          await setPending(sb, c.club_id, tgId, null);
+        } else if (pending.action === "broadcast_wait") {
+          await broadcastPreview(sb, c, token, chatId, tgId, Number(msg.message_id));
+          return res.send("ok");
+        }
+      }
     }
 
     const text = String(msg?.text ?? "").trim();
