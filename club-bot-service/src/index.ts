@@ -803,7 +803,20 @@ async function showTopProducts(sb: SupabaseClient, club: Club, token: string, ch
 }
 
 async function clientTables(sb: SupabaseClient, club: Club, token: string, chatId: number, lang: Lang) {
-  const { data } = await sb.rpc("bot_resource_board", { p_club_id: club.club_id });
+  // Same gate as booking: with no open shift every table reads as free,
+  // which tells a client to come to a closed club.
+  const [open, { data }] = await Promise.all([
+    isClubOpen(sb, club.club_id),
+    sb.rpc("bot_resource_board", { p_club_id: club.club_id }),
+  ]);
+  if (!open) {
+    return void send(
+      token, chatId,
+      L(lang, "🌙 Клуб сейчас закрыт — свободные столы появятся, когда клуб откроется.",
+        "🌙 Klub hozir yopiq — klub ochilganda bo'sh joylar ko'rinadi."),
+      { reply_markup: clientKeyboardFor(lang, club.club_id) },
+    );
+  }
   const all = (data ?? []) as Array<Record<string, unknown>>;
   if (all.length === 0) {
     return void send(token, chatId, L(lang, "Мест пока нет 🙁", "Hozircha joy yo'q 🙁"), {
