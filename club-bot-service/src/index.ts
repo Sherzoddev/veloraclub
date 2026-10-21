@@ -1573,7 +1573,7 @@ async function runBroadcast(
 
 // --------------------------------------------------------------- bonus gift
 // "🎁 Бонус всем": the same bonus to every client whose club card is linked
-// to the bot, with the admin's text. Amount, then text, then "credit N?" --
+// to the bot (bot_bonus_gift_count says how many), with the admin's text. Amount, then text, then "credit N?" --
 // nothing is credited before the last step, and bot_bonus_gift refuses a
 // second tap on the same preview (request_id).
 
