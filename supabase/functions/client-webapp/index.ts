@@ -491,8 +491,12 @@ Deno.serve(async (req: Request) => {
       });
       const { data: logs } = await client.from("audit_logs").select("action,metadata,created_at")
         .eq("club_id", clubId).eq("entity_type", "customer").eq("entity_id", card.id)
-        .in("action", ["customer.points_earned", "customer.tier_changed", "customer.referral_reward"]).order("created_at", { ascending: false }).limit(10);
-      for (const row of logs ?? []) notifications.push({
+        .in("action", ["customer.points_earned", "customer.tier_changed", "customer.referral_reward", "customer.bonus_gift"]).order("created_at", { ascending: false }).limit(10);
+      for (const row of logs ?? []) notifications.push(row.action === "customer.bonus_gift" ? {
+        // "🎁 Бонус всем" from the club bot's admin
+        icon: "gift", title: "Подарок от клуба", body: `+${row.metadata?.points ?? 0} бонусов`,
+        time: new Intl.DateTimeFormat("ru-RU", { timeZone: zone, day: "2-digit", month: "2-digit" }).format(new Date(row.created_at)),
+      } : {
         icon: row.action.includes("referral") ? "user-plus" : row.action.includes("points") ? "coins" : "trophy",
         title: row.action.includes("referral") ? "Бонус за друга" : row.action.includes("points") ? "Начислены бонусы" : "Новый уровень",
         body: row.action.includes("referral") ? `+${row.metadata?.points ?? 0} бонусов за первый чек друга` : row.action.includes("points") ? `+${row.metadata?.points ?? row.metadata?.bonus_points ?? 0} бонусов` : String(row.metadata?.tier_name ?? card.tier),
