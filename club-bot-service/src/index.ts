@@ -18,6 +18,7 @@
 // one Supabase client, image/font caches that survive across requests.
 
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import express from "express";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Agent, fetch as undiciFetch } from "undici";
@@ -234,6 +235,7 @@ const ADMIN = {
   top: "🏆 Клиенты",
   stats: "📊 Статистика",
   broadcast: "📣 Рассылка",
+  gift: "🎁 Бонус всем",
 } as const;
 const ADMIN_BUTTONS: string[] = Object.values(ADMIN);
 
@@ -268,7 +270,7 @@ const adminKeyboard = {
   keyboard: [
     [{ text: ADMIN.hall }, { text: ADMIN.bookings }],
     [{ text: ADMIN.top }, { text: ADMIN.stats }],
-    [{ text: ADMIN.broadcast }],
+    [{ text: ADMIN.broadcast }, { text: ADMIN.gift }],
   ],
   resize_keyboard: true,
 };
@@ -1569,6 +1571,141 @@ async function runBroadcast(
   );
 }
 
+// --------------------------------------------------------------- bonus gift
+// "🎁 Бонус всем": the same bonus to every client whose club card is linked
+// to the bot, with the admin's text. Amount, then text, then "credit N?" --
+// nothing is credited before the last step, and bot_bonus_gift refuses a
+// second tap on the same preview (request_id).
+
+const GIFT_MAX = 1_000_000;
+const giftCancelKeyboard = { inline_keyboard: [[{ text: "❌ Отмена", callback_data: "gift:cancel" }]] };
+
+async function giftRecipientsCount(sb: SupabaseClient, clubId: string): Promise<number> {
+  const { data, error } = await sb.rpc("bot_bonus_gift_count", { p_club_id: clubId });
+  if (error) throw error;
+  return Number(data ?? 0);
+}
+
+// What a client gets: the admin's text, then the amount and their balance.
+function giftClientText(message: string, amount: number, balance: string, lang: Lang) {
+  return `${esc(message)}\n\n` + L(lang,
+    `🎁 Вам начислено <b>+${money(amount)}</b> бонусов\n💰 Ваш баланс: <b>${balance}</b>`,
+    `🎁 Sizga <b>+${money(amount)}</b> bonus qo'shildi\n💰 Balansingiz: <b>${balance}</b>`);
+}
+
+async function startGift(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number) {
+  const count = await giftRecipientsCount(sb, club.club_id);
+  await setPending(sb, club.club_id, tgId, "gift_amount");
+  await send(
+    token, chatId,
+    `🎁 <b>Бонус всем клиентам</b>\n${DIVIDER}\nСколько бонусов начислить <b>каждому</b> клиенту? Напишите число, например <b>5000</b>.\n\nПолучат клиенты с клубной картой в боте: <b>${count}</b>`,
+    { reply_markup: giftCancelKeyboard },
+  );
+}
+
+async function giftAmount(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, raw: string) {
+  const digits = raw.replace(/[\s.,']/g, "");
+  const amount = /^\d+$/.test(digits) ? Number(digits) : NaN;
+  if (!Number.isSafeInteger(amount) || amount < 1 || amount > GIFT_MAX) {
+    return void send(token, chatId, `Напишите сумму числом от 1 до ${money(GIFT_MAX)}, например <b>5000</b>.`, {
+      reply_markup: giftCancelKeyboard,
+    });
+  }
+  await setPending(sb, club.club_id, tgId, "gift_text", { amount });
+  await send(
+    token, chatId,
+    `✍️ Теперь напишите текст для клиентов — он придёт вместе с бонусом.\n\nНапример: <i>«В нашем боте уже 100 человек! Спасибо, что вы с нами — дарим всем ${money(amount)} бонусов 🎉»</i>`,
+    { reply_markup: giftCancelKeyboard },
+  );
+}
+
+async function giftPreview(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, amount: number, message: string,
+) {
+  if (!message) {
+    return void send(token, chatId, "Нужен текст — напишите сообщение для клиентов.", { reply_markup: giftCancelKeyboard });
+  }
+  if (message.length > 900) {
+    return void send(token, chatId, `Текст слишком длинный (${message.length} символов) — сократите до 900.`, {
+      reply_markup: giftCancelKeyboard,
+    });
+  }
+  const count = await giftRecipientsCount(sb, club.club_id);
+  await setPending(sb, club.club_id, tgId, "gift_confirm", { amount, message, request_id: randomUUID() });
+  await send(token, chatId, `👇 Так увидят клиенты:\n${DIVIDER}\n${giftClientText(message, amount, "…", "ru")}`);
+  await send(
+    token, chatId,
+    `Начислить по <b>${money(amount)}</b> бонусов <b>${count}</b> клиентам и отправить им это сообщение?\nВсего бонусов: <b>${money(amount * count)}</b>`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: `✅ Начислить и отправить (${count})`, callback_data: "gift:go" }],
+          [{ text: "❌ Отмена", callback_data: "gift:cancel" }],
+        ],
+      },
+    },
+  );
+}
+
+const GIFT_REASONS: Record<string, string> = {
+  NOT_ADMIN: "Начислять бонусы может только администратор клуба.",
+  BAD_AMOUNT: `Сумма должна быть от 1 до ${money(GIFT_MAX)}.`,
+  BAD_MESSAGE: "Текст пустой или слишком длинный.",
+  ALREADY_DONE: "Этот бонус уже начислен — повторно не начисляю.",
+};
+
+async function runGift(
+  sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number,
+  amount: number, message: string, requestId: string,
+) {
+  const { data, error } = await sb.rpc("bot_bonus_gift", {
+    p_club_id: club.club_id, p_admin_tg: tgId, p_amount: amount, p_message: message, p_request_id: requestId,
+  });
+  if (error) throw error;
+  if (!data?.ok) {
+    return void send(token, chatId, `⚠️ ${GIFT_REASONS[data?.reason] ?? "Не удалось начислить бонус."}`, { reply_markup: adminKeyboard });
+  }
+  const recipients = (data.recipients ?? []) as Array<{ telegram_id: number; bonus_points: number; lang: Lang }>;
+  await send(
+    token, chatId,
+    `✅ Начислено по <b>${money(amount)}</b> бонусов <b>${data.count}</b> клиентам.\n⏳ Отправляю сообщения — пришлю итог.`,
+    { reply_markup: adminKeyboard },
+  );
+  let sent = 0;
+  let failed = 0;
+  for (const r of recipients) {
+    const lang: Lang = r.lang === "uz" ? "uz" : "ru";
+    const body = JSON.stringify({
+      chat_id: r.telegram_id, parse_mode: "HTML",
+      text: giftClientText(message, amount, money(Number(r.bonus_points)), lang),
+    });
+    // same pace and 429 handling as runBroadcast
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST", headers: { "content-type": "application/json" }, body,
+      });
+      if (res.ok) {
+        sent++;
+        break;
+      }
+      const reply: any = await res.json().catch(() => ({}));
+      const wait = Number(reply?.parameters?.retry_after ?? 0);
+      if (res.status === 429 && wait > 0 && attempt < 2) {
+        await new Promise((ok) => setTimeout(ok, (wait + 1) * 1000));
+        continue;
+      }
+      failed++;
+      break;
+    }
+    await new Promise((ok) => setTimeout(ok, 40));
+  }
+  await send(
+    token, chatId,
+    `🎁 <b>Бонус начислен</b>\n${DIVIDER}\n👥 Клиентов: <b>${data.count}</b> × ${money(amount)} = <b>${money(amount * Number(data.count))}</b>\n✅ Сообщение доставлено: <b>${sent}</b>\n⚠️ Не доставлено: <b>${failed}</b> (заблокировали бота или удалили аккаунт — бонус у них всё равно на балансе)`,
+    { reply_markup: adminKeyboard },
+  );
+}
+
 async function showMenu(
   sb: SupabaseClient, club: Club, token: string, chatId: number, role: string, lang: Lang, firstName: string,
 ) {
@@ -1659,6 +1796,7 @@ async function handleText(
       case ADMIN.top: return void adminTop(sb, club, token, chatId);
       case ADMIN.stats: return void adminStats(sb, club, token, chatId);
       case ADMIN.broadcast: return void startBroadcast(sb, club, token, chatId, tgId);
+      case ADMIN.gift: return void startGift(sb, club, token, chatId, tgId);
     }
   }
 
@@ -1964,6 +2102,27 @@ app.post("/club-bot", async (req, res) => {
         return res.send("ok");
       }
 
+      if (userRole === "ADMIN" && (data === "gift:go" || data === "gift:cancel")) {
+        const pending = await getPending(sb, c.club_id, tgId);
+        // cleared first: a second tap finds nothing to credit
+        await setPending(sb, c.club_id, tgId, null);
+        if (data === "gift:cancel") {
+          await send(token, chatId, "Бонус отменён — ничего не начислено.", { reply_markup: adminKeyboard });
+          return res.send("ok");
+        }
+        if (pending?.action !== "gift_confirm") {
+          await send(token, chatId, "Нет подготовленного бонуса — нажмите «🎁 Бонус всем» ещё раз.", { reply_markup: adminKeyboard });
+          return res.send("ok");
+        }
+        const p = pending.payload ?? {};
+        void runGift(sb, c, token, chatId, tgId, Number(p.amount), String(p.message ?? ""), String(p.request_id ?? ""))
+          .catch(async (e) => {
+            console.error("gift", e);
+            await send(token, chatId, "⚠️ Не удалось начислить бонус — попробуйте ещё раз.", { reply_markup: adminKeyboard });
+          });
+        return res.send("ok");
+      }
+
       if (data === "noop") return res.send("ok");
 
       if (data.startsWith("rate:")) {
@@ -2218,6 +2377,21 @@ app.post("/club-bot", async (req, res) => {
           await setPending(sb, c.club_id, tgId, null);
         } else if (pending.action === "broadcast_wait") {
           await broadcastPreview(sb, c, token, chatId, tgId, Number(msg.message_id));
+          return res.send("ok");
+        }
+      }
+      if (pending?.action === "gift_amount" || pending?.action === "gift_text" || pending?.action === "gift_confirm") {
+        if (raw.startsWith("/") || ADMIN_BUTTONS.includes(raw)) {
+          // another button: the gift is dropped, the button works as usual
+          await setPending(sb, c.club_id, tgId, null);
+        } else if (pending.action === "gift_amount") {
+          await giftAmount(sb, c, token, chatId, tgId, raw);
+          return res.send("ok");
+        } else if (pending.action === "gift_text") {
+          await giftPreview(sb, c, token, chatId, tgId, Number(pending.payload?.amount), raw);
+          return res.send("ok");
+        } else {
+          await send(token, chatId, "Нажмите «✅ Начислить и отправить» или «❌ Отмена» под сообщением выше.");
           return res.send("ok");
         }
       }
