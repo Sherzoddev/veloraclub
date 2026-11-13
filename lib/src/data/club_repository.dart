@@ -205,6 +205,23 @@ class ClubRepository {
       rowMap(await client
           .rpc('promo_release_coupon', params: {'p_order_id': orderId}));
 
+  /// The discount-code box of the payment sheet: a code already on the
+  /// order, the customer's own unused code, whether a campaign is running.
+  Future<Map<String, dynamic>?> discountOrderState(String orderId) async {
+    final row = await client
+        .rpc('promo_discount_order_state', params: {'p_order_id': orderId});
+    return row is Map ? Map<String, dynamic>.from(row) : null;
+  }
+
+  Future<Map<String, dynamic>> applyDiscountCode(
+          String orderId, String code) async =>
+      rowMap(await client.rpc('promo_apply_discount_code',
+          params: {'p_order_id': orderId, 'p_code': code}));
+
+  Future<Map<String, dynamic>> releaseDiscountCode(String orderId) async =>
+      rowMap(await client
+          .rpc('promo_release_discount_code', params: {'p_order_id': orderId}));
+
   Future<Map<String, dynamic>?> promoStats(
       String clubId, DateTime from, DateTime to) async {
     final row = await client.rpc('promo_stats', params: {
