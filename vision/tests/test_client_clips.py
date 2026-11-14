@@ -222,8 +222,9 @@ def test_worker_cuts_around_the_moment_uploads_and_deletes_the_file(tmp_path):
 
     client = FakeClient()
     assert make_worker(tmp_path, client, cut).handle(REQ, "Asia/Tashkent")
-    assert seen["seconds"] == 30
-    assert "starttime=2026_11_14_21_46_53&endtime=2026_11_14_21_47_23" in seen["url"]
+    # the minute that was named: from that second on, a whole minute long
+    assert seen["seconds"] == 60
+    assert "starttime=2026_11_14_21_47_05&endtime=2026_11_14_21_48_05" in seen["url"]
     assert client.failed == []
     assert not client.done_paths[0].exists()
 
@@ -381,7 +382,7 @@ def test_the_worker_asks_for_the_cameras_time_not_the_clubs(tmp_path):
     w = ClipRequestWorker(FakeClient(), {"Стол 1": LIVE}, tmp_path, threading.Event(), cut=cut,
                           shift_of=lambda *a: timedelta(hours=-5))
     assert w.handle(REQ, "Asia/Tashkent")
-    assert "starttime=2026_11_14_16_46_53" in seen["url"]
+    assert "starttime=2026_11_14_16_47_05" in seen["url"]  # 21:47:05 for the club, 5 hours behind
 
 
 def test_check_archive_tells_about_a_wrong_camera_clock():
