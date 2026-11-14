@@ -51,25 +51,55 @@ def supports_playback(live_url: str) -> bool:
     return parts.scheme in ("rtsp", "rtsps") and parts.path.rstrip("/").lower().endswith("/cam/realmonitor")
 
 
-def playback_url(live_url: str, start: datetime, end: datetime, tz: str) -> Optional[str]:
-    """The playback address of the same camera for [start, end], or None.
+def playback_urls(live_url: str, start: datetime, end: datetime, tz: str) -> list[str]:
+    """The playback addresses of the same camera for [start, end], the usual one
+    first. Firmwares differ a little (some want no `subtype`, some keep the
+    recording of the light stream), so a few spellings are tried in turn.
 
     `start` / `end` are timezone-aware; the camera shows the club's local
-    time, so they are converted to the club's time zone first.
+    time, so they are converted to the club's time zone first. Empty list if
+    the address is not a Dahua one.
     """
     if not supports_playback(live_url):
-        return None
+        return []
     parts = urlsplit(live_url)
-    channel = (parse_qs(parts.query).get("channel") or ["1"])[0]
+    query = parse_qs(parts.query)
+    channel = (query.get("channel") or ["1"])[0]
     if not channel.isdigit():
         channel = "1"
+    live_subtype = (query.get("subtype") or ["0"])[0]
     zone = ZoneInfo(tz)
     first = start.astimezone(zone).strftime(STAMP)
     last = end.astimezone(zone).strftime(STAMP)
     path = parts.path.rstrip("/")
     path = path[: -len("realmonitor")] + "playback"
-    query = f"channel={channel}&subtype=0&starttime={first}&endtime={last}"
-    return urlunsplit((parts.scheme, parts.netloc, path, query, ""))
+    stamps = f"starttime={first}&endtime={last}"
+    queries = [f"channel={channel}&subtype=0&{stamps}", f"channel={channel}&{stamps}"]
+    if live_subtype.isdigit() and live_subtype != "0":
+        queries.append(f"channel={channel}&subtype={live_subtype}&{stamps}")
+    return [urlunsplit((parts.scheme, parts.netloc, path, q, "")) for q in queries]
+
+
+def playback_url(live_url: str, start: datetime, end: datetime, tz: str) -> Optional[str]:
+    """The usual playback address of the camera, or None."""
+    urls = playback_urls(live_url, start, end, tz)
+    return urls[0] if urls else None
+
+
+def cut_first_working(urls: list[str], seconds: float, out: Path,
+                      cut: Callable = None) -> tuple[Optional[str], list[str]]:
+    """Tries the addresses one by one until a clip comes out. Returns (None or
+    the reason of the first address, the reasons of all that were tried)."""
+    cut = cut or cut_clip
+    reasons: list[str] = []
+    for url in urls:
+        why = cut(url, seconds, out)
+        if why is None:
+            return None, reasons
+        reasons.append(why)
+        if why in ("NO_FFMPEG", "FFMPEG_START", "TOO_BIG"):
+            break  # another spelling will not help
+    return (reasons[0] if reasons else "NO_RECORDING"), reasons
 
 
 def clip_window(moment: datetime, before: float, after: float) -> tuple[datetime, datetime]:
@@ -158,8 +188,9 @@ REASONS = {
     "TIMEOUT": "Камера слишком долго не отдаёт запись. Проверьте сеть и что камера не занята.",
     "FORBIDDEN": "Камера отказала в доступе к записи (403). Чаще всего это значит, что сама "
                  "камера ничего не хранит: запись идёт на регистратор. Тогда в программе "
-                 "укажите адрес регистратора и номер канала этой камеры. Или у пользователя нет "
-                 "права «Воспроизведение»: создайте в камере отдельного пользователя с этим правом.",
+                 "укажите адрес регистратора и номер канала этой камеры. Или у этого пользователя нет "
+                 "права «Воспроизведение»: впишите в программу тот же логин и пароль, "
+                 "под которыми камера добавлена в SmartPSS Lite.",
     "UNAUTHORIZED": "Логин или пароль не подошли (401). Проверьте их, как для входа в камеру.",
     "NOT_FOUND": "Камера не нашла запись за это время (404): на ней нет карты памяти, запись "
                  "выключена, либо запись идёт на регистратор.",
@@ -179,19 +210,21 @@ def check_archive(
 ) -> tuple[bool, str]:
     """Tries to take a few seconds from the camera's recording of a few minutes
     ago. Returns (worked, sentence for the person)."""
-    cut = cut or cut_clip
     if not supports_playback(live_url):
         return False, ("Адрес этой камеры не похож на Dahua: запись по времени для неё не "
                        "поддерживается.")
     now = now or datetime.now(timezone.utc)
     start = now - timedelta(minutes=minutes_ago)
-    url = playback_url(live_url, start, start + timedelta(seconds=seconds), tz)
+    urls = playback_urls(live_url, start, start + timedelta(seconds=seconds), tz)
     out = Path(tempfile.mkdtemp(prefix="vv_check_")) / "check.mp4"
     try:
-        why = cut(url, seconds, out)
+        why, tried = cut_first_working(urls, seconds, out, cut)
         if why is None:
             kb = out.stat().st_size // 1024
             return True, f"✓ Запись камеры читается: взято {seconds:g} с видео ({kb} КБ)."
-        return False, REASONS.get(why, f"Не получилось ({why}).")
+        text = REASONS.get(why, f"Не получилось ({why}).")
+        if len(tried) > 1:
+            text += f"\n\nПробовал {len(tried)} вариантов адреса записи, ответы: {', '.join(tried)}."
+        return False, text
     finally:
         shutil.rmtree(out.parent, ignore_errors=True)

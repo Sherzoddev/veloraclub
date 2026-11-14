@@ -7,7 +7,8 @@ import pytest
 import requests
 
 from velora_vision.clips.archive import (check_archive, clip_window, cut_clip, cut_command,
-                                         ffmpeg_exe, playback_url, supports_playback)
+                                         cut_first_working, ffmpeg_exe, playback_url,
+                                         playback_urls, supports_playback)
 from velora_vision.clips.client_clips import (ClipRequest, ClipRequestWorker, ClipsClient,
                                               ClipsError, table_sources)
 from velora_vision.settings import CameraSettings
@@ -277,3 +278,38 @@ def test_check_archive_explains_a_camera_that_gives_nothing():
 def test_check_archive_says_when_the_camera_is_not_dahua():
     ok, text = check_archive("rtsp://u:p@1.2.3.4/Streaming/Channels/101", "Asia/Tashkent")
     assert not ok and "Dahua" in text
+
+
+def test_playback_urls_offer_a_few_spellings_the_usual_one_first():
+    urls = playback_urls(LIVE, *clip_window(T, 12, 18), tz="Asia/Tashkent")
+    assert urls[0] == playback_url(LIVE, *clip_window(T, 12, 18), tz="Asia/Tashkent")
+    assert "subtype=0" in urls[0]
+    assert "subtype" not in urls[1] and "channel=1&starttime=" in urls[1]
+    assert "subtype=1" in urls[2]  # the live address was the light stream
+    assert playback_urls("rtsp://u:p@1.2.3.4/Streaming/Channels/101", T, T, "Asia/Tashkent") == []
+
+
+def test_the_next_spelling_is_tried_when_the_first_is_refused(tmp_path):
+    asked = []
+
+    def cut(url, seconds, out):
+        asked.append(url)
+        if "subtype" in url:
+            return "FORBIDDEN"
+        out.write_bytes(b"x" * 5000)
+        return None
+
+    urls = playback_urls(LIVE, T, T, "Asia/Tashkent")
+    why, tried = cut_first_working(urls, 4, tmp_path / "x.mp4", cut)
+    assert why is None and len(asked) == 2 and tried == ["FORBIDDEN"]
+
+
+def test_every_spelling_refused_reports_the_first_reason(tmp_path):
+    why, tried = cut_first_working(playback_urls(LIVE, T, T, "Asia/Tashkent"), 4,
+                                   tmp_path / "x.mp4", lambda u, s, o: "FORBIDDEN" if "subtype=0" in u else "NOT_FOUND")
+    assert why == "FORBIDDEN" and tried == ["FORBIDDEN", "NOT_FOUND", "FORBIDDEN"]
+
+
+def test_check_archive_lists_what_every_spelling_answered():
+    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN")
+    assert not ok and "Пробовал 3 вариантов" in text and "SmartPSS" in text
