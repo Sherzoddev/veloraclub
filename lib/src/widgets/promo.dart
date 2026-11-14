@@ -70,6 +70,64 @@ String? promoErrorText(Object error) {
   return null;
 }
 
+/// Human text for the discount-code errors the server raises, or null.
+String? discountCodeErrorText(Object error) {
+  final raw = '$error';
+  if (raw.contains('DISCOUNT_CODE_NOT_FOUND')) return tr('Kod topilmadi');
+  if (raw.contains('DISCOUNT_CODE_USED')) {
+    return tr('Kod allaqachon ishlatilgan');
+  }
+  if (raw.contains('DISCOUNT_CODE_EXPIRED')) return tr('Kod muddati tugagan');
+  if (raw.contains('DISCOUNT_CODE_NO_TIME')) {
+    return tr('Bu chekda o\'yin vaqti yo\'q');
+  }
+  if (raw.contains('DISCOUNT_CODE_ALREADY_ON_ORDER')) {
+    return tr('Bu chekda allaqachon chegirma kodi bor');
+  }
+  return null;
+}
+
+/// "🎟 Kod K7M2QX · 7%": a discount code on the payment sheet.
+class DiscountCodeStrip extends StatelessWidget {
+  const DiscountCodeStrip(
+      {super.key,
+      required this.code,
+      required this.percent,
+      required this.subtitle,
+      this.trailing});
+
+  final String code;
+  final int percent;
+  final String subtitle;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: promoGold.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: promoGold.withValues(alpha: 0.6)),
+        ),
+        child: Row(children: [
+          const Text('🎰', style: TextStyle(fontSize: 18)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${tr('Kod')} $code · $percent%',
+                    style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text(subtitle,
+                    style: TextStyle(color: VColors.muted, fontSize: 12.5)),
+              ],
+            ),
+          ),
+          if (trailing != null) trailing!,
+        ]),
+      );
+}
+
 /// Six dots, the counted visits filled: ●●●●○○ 4/6
 class PromoDots extends StatelessWidget {
   const PromoDots(

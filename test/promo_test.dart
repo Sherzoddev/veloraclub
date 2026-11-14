@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:velora_club/src/widgets/promo.dart';
 
@@ -35,6 +36,31 @@ void main() {
     expect(line, contains('1 soat bepul'));
     expect(line, contains('11:00–17:00'));
     expect(line, contains('23.10'));
+  });
+
+  test('discount code errors become readable messages', () {
+    expect(discountCodeErrorText(Exception('P0002: DISCOUNT_CODE_NOT_FOUND')),
+        isNotNull);
+    expect(discountCodeErrorText(Exception('P0001: DISCOUNT_CODE_EXPIRED')),
+        isNotNull);
+    expect(discountCodeErrorText(Exception('something else')), isNull);
+  });
+
+  testWidgets('discount strip shows the code, the percent and the button',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: DiscountCodeStrip(
+          code: 'K7M2QX',
+          percent: 7,
+          subtitle: 'only play time',
+          trailing: TextButton(onPressed: () {}, child: const Text('go')),
+        ),
+      ),
+    ));
+    expect(find.textContaining('K7M2QX'), findsOneWidget);
+    expect(find.textContaining('7%'), findsOneWidget);
+    expect(find.text('go'), findsOneWidget);
   });
 
   test('server codes become readable messages', () {

@@ -46,7 +46,7 @@ Future<void> showSessionPaymentDialog(
 
 class _Data {
   _Data(this.order, this.rounds, this.methods, this.discounts, this.customers,
-      this.promo);
+      this.promo, this.discount);
   final Map<String, dynamic> order;
   final List<Map<String, dynamic>> rounds;
   final List<Map<String, dynamic>> methods;
@@ -55,6 +55,9 @@ class _Data {
 
   /// "6 visits = 1 free hour" state of the order's customer, or null.
   final Map<String, dynamic>? promo;
+
+  /// Discount-code box (the "🎁 Получить скидку" draw), or null.
+  final Map<String, dynamic>? discount;
 }
 
 class _PaymentDialog extends StatefulWidget {
@@ -83,6 +86,10 @@ class _PaymentDialog extends StatefulWidget {
 class _PaymentDialogState extends State<_PaymentDialog> {
   String? methodId;
   final amountCtrl = TextEditingController();
+  final _codeCtrl = TextEditingController();
+  // A client with a card gets the discount button by himself once the card is
+  // scanned; typing a code is only for a client without one.
+  bool _codeFieldOpen = false;
   bool paying = false;
   // Mixed payment: one check paid with several methods (part cash, part
   // card, part transfer). One amount field per method, by method id.
@@ -119,7 +126,13 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     } catch (_) {
       promo = null; // the promo is an extra, never a reason not to pay
     }
-    return _Data(order, rounds, methods, discounts, customers, promo);
+    Map<String, dynamic>? discount;
+    try {
+      discount = await repo.discountOrderState(widget.orderId);
+    } catch (_) {
+      discount = null; // an extra, never a reason not to pay
+    }
+    return _Data(order, rounds, methods, discounts, customers, promo, discount);
   }
 
   // A customer who joins through the bot while this sheet is open must be
@@ -149,6 +162,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   void dispose() {
     widget.controller.removeListener(_onController);
     amountCtrl.dispose();
+    _codeCtrl.dispose();
     for (final c in _splitCtrls.values) {
       c.dispose();
     }
@@ -343,6 +357,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                       ),
                     ),
                     ..._promo(context, data.promo),
+                    ..._discountCode(context, data.discount),
                     const SizedBox(height: 10),
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxHeight: 260),
@@ -750,6 +765,115 @@ class _PaymentDialogState extends State<_PaymentDialog> {
         PromoDots(visits: visits, needed: needed, size: 11),
       ]),
     ];
+  }
+
+  /// "🎁 Получить скидку": the client tells a code, the cashier enters it; the
+  /// percent comes off the play time only (the server does the maths).
+  List<Widget> _discountCode(BuildContext context, Map<String, dynamic>? d) {
+    if (d == null) return const [];
+    final used = d['used'] is Map ? d['used'] as Map : null;
+    final mine = d['mine'] is Map ? d['mine'] as Map : null;
+    if (used != null) {
+      return [
+        const SizedBox(height: 10),
+        DiscountCodeStrip(
+          code: '${used['code']}',
+          percent: (used['percent'] as num?)?.toInt() ?? 0,
+          subtitle:
+              '−${money(used['amount'])} so\'m · ${tr('Faqat o\'yin vaqtiga')}',
+          trailing: TextButton(
+            onPressed: paying ? null : () => _releaseDiscountCode(context),
+            child: Text(tr('Bekor qilish')),
+          ),
+        ),
+      ];
+    }
+    if (mine != null) {
+      return [
+        const SizedBox(height: 10),
+        DiscountCodeStrip(
+          code: '${mine['code']}',
+          percent: (mine['percent'] as num?)?.toInt() ?? 0,
+          subtitle: tr('Faqat o\'yin vaqtiga'),
+          trailing: FilledButton(
+            onPressed: paying
+                ? null
+                : () => _applyDiscountCode(context, '${mine['code']}'),
+            style: FilledButton.styleFrom(backgroundColor: promoGold),
+            child: Text(tr('Qo\'llash'),
+                style: const TextStyle(
+                    color: Colors.black, fontWeight: FontWeight.w900)),
+          ),
+        ),
+      ];
+    }
+    if (d['live'] != true) return const [];
+    if (!_codeFieldOpen) {
+      return [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: () => setState(() => _codeFieldOpen = true),
+            child: Text(tr('Kod bilan kiritish')),
+          ),
+        ),
+      ];
+    }
+    return [
+      const SizedBox(height: 10),
+      Row(children: [
+        Expanded(
+          child: TextField(
+            controller: _codeCtrl,
+            textCapitalization: TextCapitalization.characters,
+            decoration: InputDecoration(
+              isDense: true,
+              labelText: tr('Chegirma kodi'),
+              hintText: tr('Kodni kiriting'),
+            ),
+            onSubmitted: (v) => paying || v.trim().isEmpty
+                ? null
+                : _applyDiscountCode(context, v),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(
+          onPressed:
+              paying ? null : () => _applyDiscountCode(context, _codeCtrl.text),
+          child: Text(tr('Qo\'llash')),
+        ),
+      ]),
+    ];
+  }
+
+  Future<void> _applyDiscountCode(BuildContext context, String code) async {
+    if (code.trim().isEmpty) return;
+    try {
+      await widget.controller.repository
+          .applyDiscountCode(widget.orderId, code.trim());
+      _amountEdited = false;
+      _codeCtrl.clear();
+      setState(() {
+        _future = _load();
+      });
+      if (context.mounted) showDone(context, tr('Chegirma kodi qo\'llandi'));
+    } catch (e) {
+      if (!context.mounted) return;
+      final text = discountCodeErrorText(e);
+      text == null ? showError(context, e) : showError(context, text);
+    }
+  }
+
+  Future<void> _releaseDiscountCode(BuildContext context) async {
+    try {
+      await widget.controller.repository.releaseDiscountCode(widget.orderId);
+      _amountEdited = false;
+      setState(() {
+        _future = _load();
+      });
+    } catch (e) {
+      if (context.mounted) showError(context, e);
+    }
   }
 
   Future<void> _applyCoupon(BuildContext context, String couponId) async {

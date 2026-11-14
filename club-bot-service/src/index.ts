@@ -845,11 +845,14 @@ async function clientTables(sb: SupabaseClient, club: Club, token: string, chatI
 }
 
 async function clientBonus(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, lang: Lang) {
-  const [{ data }, { data: tiers }] = await Promise.all([
+  const [{ data }, { data: tiers }, { data: discountCodes }] = await Promise.all([
     sb.rpc("bot_player_card", { p_club_id: club.club_id, p_tg_id: tgId }),
     sb.from("loyalty_tiers")
       .select("name,min_total_spent,earn_percent,discount_percent")
       .eq("club_id", club.club_id).eq("active", true).order("sort_order"),
+    sb.from("customer_discount_codes").select("code,percent,expires_at")
+      .eq("club_id", club.club_id).eq("telegram_id", tgId).eq("status", "ACTIVE")
+      .gt("expires_at", new Date().toISOString()).order("expires_at").limit(3),
   ]);
   if (!data?.ok) {
     return void send(
@@ -900,6 +903,17 @@ async function clientBonus(sb: SupabaseClient, club: Club, token: string, chatId
         L(lang, `Ещё ${needed - got} — и 1 час игры бесплатно! 🎁`, `Yana ${needed - got} ta tashrif — 1 soat o'yin bepul! 🎁`),
       );
     }
+  }
+  // "🎁 Получить скидку": a drawn discount that has not been used yet
+  for (const d of discountCodes ?? []) {
+    const until = new Date(new Date(d.expires_at).getTime() - 60_000)
+      .toLocaleDateString("ru-RU", { timeZone: club.timezone || "Asia/Tashkent", day: "2-digit", month: "2-digit" });
+    lines.push(
+      "", DIVIDER,
+      `🎰 <b>${L(lang, `Ваша скидка ${d.percent}% на время игры`, `Sizning chegirmangiz: o'yin vaqtiga ${d.percent}%`)}</b>`,
+      `🎟 ${L(lang, "Код", "Kod")}: <code>${d.code}</code> · ⏳ ${L(lang, `до ${until}`, `${until} gacha`)}`,
+      L(lang, "Назовите код кассиру перед оплатой.", "To'lovdan oldin kodni kassirga ayting."),
+    );
   }
   if (data.next_tier) {
     lines.push("", `✨ ${L(lang, "До уровня", "Darajagacha")} «${data.next_tier}»: <b>${money(Number(data.to_next ?? 0))} ${cur}</b>`);
@@ -1706,6 +1720,32 @@ async function runGift(
   );
 }
 
+// ---------------------------------------------------------- discount draw
+// The "🎁 Получить скидку" button of a campaign (see the discount_lottery
+// migration): bot_discount_claim hands out the next prize from the pool, once
+// per client. The discount is on play time only -- the text says so.
+
+function discountReply(r: any, lang: Lang): string {
+  if (!r?.ok) {
+    return r?.reason === "ENDED"
+      ? L(lang, "⏳ Акция уже закончилась.", "⏳ Aksiya tugagan.")
+      : L(lang, "Эта акция вам недоступна.", "Bu aksiya siz uchun mavjud emas.");
+  }
+  const pct = Number(r.percent);
+  const note = L(lang,
+    "Скидка на время игры — на бар и товары не распространяется.\nНазовите код кассиру перед оплатой.",
+    "Chegirma o'yin vaqtiga amal qiladi — bar va mahsulotlarga tegishli emas.\nTo'lovdan oldin kodni kassirga ayting.");
+  if (r.already) {
+    return L(lang,
+      `⚠️ <b>Вы уже участвовали</b> — ваша скидка <b>${pct}%</b>, код <code>${r.code}</code>, до ${r.until}.${r.used ? "\n✅ Код уже использован." : ""}`,
+      `⚠️ <b>Siz allaqachon qatnashgansiz</b> — chegirmangiz <b>${pct}%</b>, kod <code>${r.code}</code>, ${r.until} gacha.${r.used ? "\n✅ Kod ishlatilgan." : ""}`);
+  }
+  const head = pct >= 30
+    ? L(lang, `🔥🔥🔥 <b>ДЖЕКПОТ! Ваша скидка — ${pct}%</b>`, `🔥🔥🔥 <b>JEKPOT! Chegirmangiz — ${pct}%</b>`)
+    : L(lang, `🎉 <b>Ваша скидка — ${pct}%</b>`, `🎉 <b>Chegirmangiz — ${pct}%</b>`);
+  return `${head}\n\n🎟 ${L(lang, "Код", "Kod")}: <b>${r.code}</b>\n⏳ ${L(lang, `Действует до <b>${r.until}</b> включительно`, `<b>${r.until}</b> gacha amal qiladi`)}\n\n${note}`;
+}
+
 async function showMenu(
   sb: SupabaseClient, club: Club, token: string, chatId: number, role: string, lang: Lang, firstName: string,
 ) {
@@ -2120,6 +2160,17 @@ app.post("/club-bot", async (req, res) => {
             console.error("gift", e);
             await send(token, chatId, "⚠️ Не удалось начислить бонус — попробуйте ещё раз.", { reply_markup: adminKeyboard });
           });
+        return res.send("ok");
+      }
+
+      if (data.startsWith("disc:")) {
+        const { data: claim, error: claimError } = await sb.rpc("bot_discount_claim", {
+          p_club_id: c.club_id, p_tg_id: tgId, p_campaign_id: data.slice(5),
+        });
+        if (claimError) console.error("discount claim", claimError);
+        await send(token, chatId, claimError ? L(lang, "Не получилось — попробуйте ещё раз.", "Bo'lmadi — yana urinib ko'ring.") : discountReply(claim, lang), {
+          reply_markup: menuFor(userRole, lang),
+        });
         return res.send("ok");
       }
 
