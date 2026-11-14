@@ -13,7 +13,7 @@ from . import secrets_store
 
 DEFAULT_SUPABASE_URL = "https://aatriitpqpwhdcehjzip.supabase.co"
 FILE_NAME = "settings.json"
-SETTINGS_VERSION = 3
+SETTINGS_VERSION = 4
 
 
 @dataclass
@@ -33,7 +33,7 @@ class Settings:
     run_on_open: bool = True  # begin working as soon as the program opens
     # The program's own recording of the cameras (see clips/local_record.py)
     local_record: bool = True
-    keep_hours: int = 36  # how long the pieces are kept
+    keep_hours: int = 24  # how long the pieces are kept
     record_quality: str = "light"  # "light": the camera's light stream, "main": the main one
     records_dir: str = ""  # empty: the program's data folder
 
@@ -96,6 +96,10 @@ class Settings:
             d.keep_hours = min(168, max(2, int(data.get("keep_hours", d.keep_hours))))
         except (TypeError, ValueError):
             pass
+        # The first default was 36 hours; clubs asked for 24 to keep the disk
+        # free. A value saved by an older version moves once, a later choice stays.
+        if int(data.get("version") or 1) < 4 and d.keep_hours == 36:
+            d.keep_hours = 24
         d.record_quality = "main" if data.get("record_quality") == "main" else "light"
         d.records_dir = str(data.get("records_dir") or "")
         return d

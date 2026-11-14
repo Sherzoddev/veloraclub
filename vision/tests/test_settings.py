@@ -65,3 +65,24 @@ def test_problems_tell_what_is_missing():
     no_table = Settings(bot_token=TOKEN, cameras=[CameraSettings("c", "A", "rtsp://x/y")])
     assert "стол" in no_table.problems()[0].lower()
     assert sample().problems() == []
+
+
+def test_the_first_default_of_36_hours_moves_to_24_once(tmp_path):
+    old = {"version": 3, "keep_hours": 36, "bot_token": st.secrets_store.protect(TOKEN)}
+    (tmp_path / st.FILE_NAME).write_text(json.dumps(old), encoding="utf-8")
+    assert st.load(tmp_path).keep_hours == 24
+    assert Settings().keep_hours == 24
+
+
+def test_a_later_choice_of_hours_is_kept(tmp_path):
+    s = Settings(bot_token=TOKEN, keep_hours=48)
+    st.save(tmp_path, s)
+    assert st.load(tmp_path).keep_hours == 48
+    s.keep_hours = 36  # chosen on purpose after the change
+    st.save(tmp_path, s)
+    assert st.load(tmp_path).keep_hours == 36
+
+
+def test_an_old_value_other_than_the_default_is_left_alone(tmp_path):
+    (tmp_path / st.FILE_NAME).write_text(json.dumps({"version": 3, "keep_hours": 72}), encoding="utf-8")
+    assert st.load(tmp_path).keep_hours == 72
