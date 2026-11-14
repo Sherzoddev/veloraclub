@@ -23,8 +23,9 @@ from .archive import (clip_window, clock_shift, cut_clip, cut_first_working, des
 
 log = logging.getLogger("velora_vision.clips")
 
-BEFORE = 12.0  # seconds shown before the named moment
-AFTER = 18.0  # and after it
+# The clip is the minute the client named: "19:52" is 19:52:00 to 19:53:00.
+BEFORE = 0.0  # seconds shown before the named moment
+AFTER = 60.0  # and after it
 POLL_EVERY = 8.0
 
 

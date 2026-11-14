@@ -871,7 +871,7 @@ function clipReply(reason: string | undefined, ok: boolean, lang: Lang): string 
       "🎬 Videoni tayyorlayapman — bir-ikki daqiqada shu yerga yuboraman.");
   }
   switch (reason) {
-    case "TOO_FRESH": return L(lang, "Это было только что — подождите минутку и напишите время ещё раз.", "Bu hozirgina bo'ldi — bir daqiqa kutib, vaqtni qayta yozing.");
+    case "TOO_FRESH": return L(lang, "Эта минута ещё не закончилась — подождите до её конца и напишите время ещё раз.", "Bu daqiqa hali tugamadi — oxirigacha kutib, vaqtni qayta yozing.");
     case "TOO_OLD": return L(lang, "Запись хранится 24 часа — это время уже недоступно.", "Yozuv 24 soat saqlanadi — bu vaqt endi mavjud emas.");
     case "BUSY": return L(lang, "Предыдущий ролик ещё готовится — подождите, пожалуйста.", "Oldingi video hali tayyorlanyapti — iltimos, kuting.");
     case "LIMIT": return L(lang, "Слишком много запросов. Попробуйте через час.", "So'rovlar juda ko'p. Bir soatdan keyin urinib ko'ring.");
@@ -891,8 +891,8 @@ async function clientClipStart(sb: SupabaseClient, club: Club, token: string, ch
   const rows: Array<typeof buttons> = [];
   for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
   await send(token, chatId, L(lang,
-    "🎬 <b>Мои удары</b>\n\nКамера записывает игру. Выберите стол, укажите время — и я пришлю ролик с вашим ударом.",
-    "🎬 <b>Mening zarbalarim</b>\n\nKamera o'yinni yozib boradi. Stolni tanlang, vaqtni yozing — men zarbangiz videosini yuboraman."), {
+    "🎬 <b>Мои удары</b>\n\nКамера записывает игру. Выберите стол и укажите время (минуту) — и я пришлю видео этой минуты.",
+    "🎬 <b>Mening zarbalarim</b>\n\nKamera o'yinni yozib boradi. Stolni tanlang, vaqtni (daqiqani) yozing — men shu daqiqaning videosini yuboraman."), {
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: rows },
   });
