@@ -11,6 +11,7 @@ from typing import Callable, Optional
 
 from . import messages
 from .camera import CameraReader
+from .clips.client_clips import ClipRequestWorker, ClipsClient, table_sources
 from .clips.encoder import encode_mp4
 from .clips.recorder import ClipRecorder
 from .clips.sender import ClipJob, ClipSender
@@ -64,6 +65,7 @@ class Controller:
         self.tmp_dir = tmp_dir or snapshot_dir.parent / "tmp"
         self.sender: Optional[ClipSender] = None
         self.recorders: list[ClipRecorder] = []
+        self.client_clips: Optional[ClipRequestWorker] = None
         self.detector_factory = detector_factory
         self.state = STOPPED
         self.message = "Остановлено"
@@ -174,6 +176,19 @@ class Controller:
             self.recorders.append(rec)
         log.info("Запись ударов включена (режим «%s», камер: %d)", settings.clips_mode, len(cams))
 
+    def _start_client_clips(self, settings, cfg, stop) -> None:
+        """«🎬 Мой удар»: заявки клиентов из бота, ролики из архива камеры."""
+        self.client_clips = None
+        if not settings.client_clips:
+            return
+        sources = table_sources(cfg.cameras)
+        if not sources:
+            log.info("«Мой удар» выключен: нет камер Dahua с нарисованными столами")
+            return
+        self.client_clips = ClipRequestWorker(
+            ClipsClient(settings.supabase_url, settings.bot_token), sources, self.tmp_dir, stop)
+        self.client_clips.start()
+
     # -- the thread -------------------------------------------------------
     def _fail(self, text: str) -> None:
         log.error("%s", text)
@@ -220,6 +235,7 @@ class Controller:
             )
             self.service = service
             self._start_clips(settings, cfg, snap, readers, service, stop)
+            self._start_client_clips(settings, cfg, stop)
             tables = len(service.trackers)
             notifier.notify(messages.started(snap.club_name, tables, len(cfg.cameras)))
             self.state = RUNNING

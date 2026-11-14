@@ -1,0 +1,183 @@
+"""«🎬 Мой удар»: клиент называет в боте стол и время, программа вырезает этот
+момент из записи камеры, сервер отправляет ролик клиенту.
+
+Раз в несколько секунд программа спрашивает у сервера, нет ли заявок на её
+столы (заодно сообщает, какие столы умеет резать: так кнопка в боте
+появляется сама и пропадает, если компьютер выключен). Файл существует
+только пока режется и отправляется, потом удаляется.
+"""
+from __future__ import annotations
+
+import logging
+import threading
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Callable, Optional
+
+import requests
+
+from .archive import clip_window, cut_clip, playback_url, supports_playback
+
+log = logging.getLogger("velora_vision.clips")
+
+BEFORE = 12.0  # seconds shown before the named moment
+AFTER = 18.0  # and after it
+POLL_EVERY = 8.0
+
+
+@dataclass(frozen=True)
+class ClipRequest:
+    id: str
+    table: str
+    moment: datetime  # timezone-aware
+
+
+class ClipsError(Exception):
+    pass
+
+
+class ClipsClient:
+    """Talks to the Supabase function vision-clips (same token as the rest)."""
+
+    def __init__(self, supabase_url: str, bot_token: str, http=requests, timeout: float = 20):
+        self.url = f"{supabase_url.rstrip('/')}/functions/v1/vision-clips"
+        self.token = bot_token.strip()
+        self.http = http
+        self.timeout = timeout
+
+    def _post(self, **kw):
+        try:
+            return self.http.post(self.url, timeout=kw.pop("timeout", self.timeout), **kw)
+        except requests.RequestException as e:
+            raise ClipsError(f"нет связи с сервером ({type(e).__name__})") from e
+
+    def poll(self, tables: list[str]) -> tuple[list[ClipRequest], str]:
+        """Open requests for these tables and the club's time zone."""
+        import json
+
+        resp = self._post(json={"bot_token": self.token, "action": "clips_poll",
+                                "tables": json.dumps(tables, ensure_ascii=False)})
+        try:
+            data = resp.json()
+        except ValueError:
+            data = None
+        if resp.status_code != 200 or not isinstance(data, dict):
+            raise ClipsError(f"сервер ответил {resp.status_code}")
+        out = []
+        for r in data.get("requests") or []:
+            try:
+                moment = datetime.fromisoformat(str(r["moment"]).replace("Z", "+00:00"))
+                if moment.tzinfo is None:
+                    moment = moment.replace(tzinfo=timezone.utc)
+                out.append(ClipRequest(str(r["id"]), str(r.get("table") or ""), moment))
+            except (KeyError, ValueError):
+                continue
+        return out, str(data.get("timezone") or "Asia/Tashkent")
+
+    def done(self, request_id: str, path: Path) -> bool:
+        with open(path, "rb") as f:
+            resp = self._post(
+                data={"bot_token": self.token, "action": "clip_done", "request_id": request_id},
+                files={"file": ("clip.mp4", f, "video/mp4")}, timeout=180,
+            )
+        try:
+            return resp.status_code == 200 and bool(resp.json().get("ok"))
+        except ValueError:
+            return False
+
+    def fail(self, request_id: str, reason: str) -> None:
+        try:
+            self._post(json={"bot_token": self.token, "action": "clip_fail",
+                             "request_id": request_id, "reason": reason})
+        except ClipsError as e:
+            log.warning("Не удалось сообщить серверу об ошибке ролика: %s", e)
+
+
+def table_sources(cameras) -> dict[str, str]:
+    """table name -> live address of the camera that can be cut (Dahua only).
+
+    `cameras` are CameraCfg objects; the first suitable camera of a table wins.
+    """
+    out: dict[str, str] = {}
+    for cam in cameras:
+        if cam.is_file or not supports_playback(cam.source):
+            continue
+        for t in cam.tables:
+            out.setdefault(t.resource, cam.source)
+    return out
+
+
+class ClipRequestWorker(threading.Thread):
+    def __init__(self, client: ClipsClient, sources: dict[str, str], tmp_dir: Path,
+                 stop: threading.Event, cut: Callable = cut_clip,
+                 poll_every: float = POLL_EVERY):
+        super().__init__(name="client-clips", daemon=True)
+        self.client = client
+        self.sources = sources
+        self.tmp_dir = tmp_dir
+        self._stop_event = stop
+        self.cut = cut
+        self.poll_every = poll_every
+        self.sent = 0
+        self.failed = 0
+        self._warned = False
+
+    def run(self) -> None:
+        log.info("«Мой удар» включён, столов: %d", len(self.sources))
+        while not self._stop_event.is_set():
+            try:
+                self.step()
+            except Exception:  # one bad request must not stop the loop
+                log.exception("Ошибка в «Мой удар», продолжаю")
+            self._stop_event.wait(self.poll_every)
+
+    def step(self) -> int:
+        """One round: ask, cut what was asked. Returns how many were handled."""
+        try:
+            requests_, tz = self.client.poll(list(self.sources))
+            self._warned = False
+        except ClipsError as e:
+            if not self._warned:
+                log.warning("«Мой удар»: %s", e)
+                self._warned = True
+            return 0
+        for req in requests_:
+            self.handle(req, tz)
+        return len(requests_)
+
+    def handle(self, req: ClipRequest, tz: str) -> bool:
+        source = self.sources.get(req.table)
+        start, end = clip_window(req.moment, BEFORE, AFTER)
+        url = playback_url(source, start, end, tz) if source else None
+        if url is None:
+            self.failed += 1
+            self.client.fail(req.id, "NO_CAMERA")
+            return False
+        self.tmp_dir.mkdir(parents=True, exist_ok=True)
+        out = self.tmp_dir / f"clip_ask_{req.id[:8]}.mp4"
+        try:
+            why = self.cut(url, BEFORE + AFTER, out)
+            if why is not None:
+                self.failed += 1
+                log.warning("Ролик по заявке не получился (%s, %s)", req.table, why)
+                self.client.fail(req.id, why)
+                return False
+            try:
+                uploaded = self.client.done(req.id, out)
+            except ClipsError as e:
+                log.warning("Не удалось передать ролик серверу: %s", e)
+                uploaded = False
+            if not uploaded:
+                self.failed += 1
+                log.warning("Сервер не принял ролик (%s)", req.table)
+                self.client.fail(req.id, "UPLOAD")
+                return False
+            self.sent += 1
+            log.info("Ролик по заявке отправлен клиенту (%s)", req.table)
+            return True
+        finally:
+            try:
+                out.unlink(missing_ok=True)  # always, whatever happened
+            except OSError:
+                log.warning("Не удалось удалить временный файл %s", out.name)
