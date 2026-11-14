@@ -236,6 +236,7 @@ const ADMIN = {
   stats: "📊 Статистика",
   broadcast: "📣 Рассылка",
   gift: "🎁 Бонус всем",
+  ideas: "💡 Идеи клиентов",
 } as const;
 const ADMIN_BUTTONS: string[] = Object.values(ADMIN);
 
@@ -271,6 +272,7 @@ const adminKeyboard = {
     [{ text: ADMIN.hall }, { text: ADMIN.bookings }],
     [{ text: ADMIN.top }, { text: ADMIN.stats }],
     [{ text: ADMIN.broadcast }, { text: ADMIN.gift }],
+    [{ text: ADMIN.ideas }],
   ],
   resize_keyboard: true,
 };
@@ -1746,6 +1748,49 @@ function discountReply(r: any, lang: Lang): string {
   return `${head}\n\n🎟 ${L(lang, "Код", "Kod")}: <b>${r.code}</b>\n⏳ ${L(lang, `Действует до <b>${r.until}</b> включительно`, `<b>${r.until}</b> gacha amal qiladi`)}\n\n${note}`;
 }
 
+// ------------------------------------------------------------ client ideas
+// "Какие функции добавить?": the clients get one message with a button, write
+// their ideas in their own words (bot_poll_idea), and the admin sees ALL of
+// them at once with one button -- nothing is sent to the owner per answer.
+
+const IDEAS_CHUNK = 3800; // Telegram allows 4096 characters per message
+
+async function adminIdeas(sb: SupabaseClient, club: Club, token: string, chatId: number) {
+  const { data, error } = await sb.rpc("bot_poll_results", { p_club_id: club.club_id });
+  if (error) {
+    console.error("poll results", error);
+    return void send(token, chatId, "⚠️ Не удалось получить идеи — попробуйте ещё раз.", { reply_markup: adminKeyboard });
+  }
+  if (!data?.ok) {
+    return void send(token, chatId, "💡 Опросов пока не было.", { reply_markup: adminKeyboard });
+  }
+  const ideas: Array<{ who: string; idea: string }> = Array.isArray(data.ideas) ? data.ideas : [];
+  const date = data.sent_at
+    ? new Date(data.sent_at).toLocaleDateString("ru-RU", { timeZone: club.timezone || "Asia/Tashkent", day: "2-digit", month: "2-digit" })
+    : "";
+  const head =
+    `💡 <b>Идеи клиентов</b>\n${DIVIDER}\n` +
+    `Опрос от ${date}: получили <b>${data.delivered}</b>, написали <b>${data.people}</b> чел., идей <b>${ideas.length}</b>`;
+  if (ideas.length === 0) {
+    return void send(token, chatId, `${head}\n\nПока никто не написал.`, { reply_markup: adminKeyboard });
+  }
+  // newest first; as many messages as the answers need
+  const lines = ideas.map((i) => `• <b>${esc(i.who)}</b>: ${esc(i.idea)}`);
+  const chunks: string[] = [];
+  let cur = head + "\n";
+  for (const line of lines) {
+    if (cur.length + line.length + 1 > IDEAS_CHUNK) {
+      chunks.push(cur);
+      cur = "";
+    }
+    cur += `\n${line}`;
+  }
+  chunks.push(cur);
+  for (let n = 0; n < chunks.length; n++) {
+    await send(token, chatId, chunks[n], n === chunks.length - 1 ? { reply_markup: adminKeyboard } : {});
+  }
+}
+
 async function showMenu(
   sb: SupabaseClient, club: Club, token: string, chatId: number, role: string, lang: Lang, firstName: string,
 ) {
@@ -1837,6 +1882,7 @@ async function handleText(
       case ADMIN.stats: return void adminStats(sb, club, token, chatId);
       case ADMIN.broadcast: return void startBroadcast(sb, club, token, chatId, tgId);
       case ADMIN.gift: return void startGift(sb, club, token, chatId, tgId);
+      case ADMIN.ideas: return void adminIdeas(sb, club, token, chatId);
     }
   }
 
@@ -1909,6 +1955,25 @@ async function handleText(
   // relay_admin / relay_client are the older per-booking message buttons
   // (radm:/rcli:) -- they now go through the same chat thread, with the
   // booking as context, so the Mini App shows them too.
+  if (pending?.action === "poll_idea") {
+    await setPending(sb, club.club_id, tgId, null);
+    const { data: saved, error: ideaError } = await sb.rpc("bot_poll_idea", {
+      p_club_id: club.club_id, p_tg_id: tgId, p_poll_id: String(pending.payload?.poll_id ?? ""), p_text: text,
+    });
+    if (ideaError) console.error("poll idea", ideaError);
+    const reply = ideaError
+      ? L(lang, "Не получилось записать — попробуйте ещё раз.", "Yozib bo'lmadi — yana urinib ko'ring.")
+      : saved?.ok
+        ? L(lang,
+            "Спасибо! Записали 🙌 Есть ещё идея — нажмите «Написать идею» под сообщением выше ещё раз.",
+            "Rahmat! Yozib oldik 🙌 Yana g'oya bo'lsa — yuqoridagi xabarda «G'oya yozish» tugmasini yana bosing.")
+        : saved?.reason === "LIMIT"
+          ? L(lang, "Вы уже прислали много идей — спасибо! 🙏", "Siz allaqachon ko'p g'oya yubordingiz — rahmat! 🙏")
+          : L(lang, "Этот опрос уже закрыт.", "Bu so'rovnoma yopilgan.");
+    await send(token, chatId, reply, { reply_markup: clientKeyboardFor(lang, club.club_id) });
+    return;
+  }
+
   if (pending?.action === "match_reply") {
     await setPending(sb, club.club_id, tgId, null);
     await matchSend(sb, club, token, chatId, tgId, lang, String(pending.payload?.match_id ?? ""), text);
@@ -2170,6 +2235,17 @@ app.post("/club-bot", async (req, res) => {
         if (claimError) console.error("discount claim", claimError);
         await send(token, chatId, claimError ? L(lang, "Не получилось — попробуйте ещё раз.", "Bo'lmadi — yana urinib ko'ring.") : discountReply(claim, lang), {
           reply_markup: menuFor(userRole, lang),
+        });
+        return res.send("ok");
+      }
+
+      if (data.startsWith("poll:")) {
+        // "✍️ Написать идею": the next text message of this client is his idea
+        await setPending(sb, c.club_id, tgId, "poll_idea", { poll_id: data.slice(5) });
+        await send(token, chatId, L(lang,
+          "✍️ Напишите, какие функции вы хотели бы видеть в боте и клубе — своими словами, хоть парой слов.",
+          "✍️ Bot va klubda qanday imkoniyatlarni ko'rishni xohlaysiz — o'z so'zlaringiz bilan, hatto ikki so'z bilan ham yozing."), {
+          reply_markup: { force_reply: true, input_field_placeholder: L(lang, "Ваша идея…", "G'oyangiz…") },
         });
         return res.send("ok");
       }
