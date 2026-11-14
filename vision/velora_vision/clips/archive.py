@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -111,11 +112,12 @@ def cut_clip(
     except OSError:
         return "FFMPEG_START"
     if proc.returncode != 0:
-        # The address holds the camera password: never log it, only ffmpeg's
-        # last words with the password cut out.
-        tail = (proc.stderr or b"").decode("utf-8", "replace")[-200:]
-        log.warning("ffmpeg не смог взять запись: %s", _hide_password(tail, source))
-        return "NO_RECORDING"
+        # The address holds the camera password: never log it. It is cut out
+        # of the whole text first, and only then the end is kept (cutting the
+        # end first could leave half of a password in the log).
+        text = _hide_password((proc.stderr or b"").decode("utf-8", "replace"), source)
+        log.warning("ffmpeg не смог взять запись: %s", text[-300:])
+        return _reason_of(text)
     if not out.exists() or out.stat().st_size < 1000:
         return "EMPTY"
     if out.stat().st_size > MAX_BYTES:
@@ -131,13 +133,37 @@ def _hide_password(text: str, source: str) -> str:
                 text = text.replace(secret, "***")
     except ValueError:
         pass
-    return text
+    # whatever is left in front of an "@" (a user or a password, even a cut
+    # one, in any address ffmpeg prints)
+    return re.sub(r"[^\s/@]+@", "***@", text)
+
+
+def _reason_of(text: str) -> str:
+    """What ffmpeg's last words mean for the person."""
+    low = text.lower()
+    if "403" in low or "forbidden" in low:
+        return "FORBIDDEN"
+    if "401" in low or "unauthorized" in low:
+        return "UNAUTHORIZED"
+    if "404" in low or "not found" in low:
+        return "NOT_FOUND"
+    if "refused" in low or "no route" in low or "timed out" in low or "unreachable" in low:
+        return "CONNECT"
+    return "NO_RECORDING"
 
 
 # What the person is told when the test clip does not come out.
 REASONS = {
     "NO_FFMPEG": "В программе нет видеокодера (ffmpeg). Скачайте программу заново.",
     "TIMEOUT": "Камера слишком долго не отдаёт запись. Проверьте сеть и что камера не занята.",
+    "FORBIDDEN": "Камера отказала в доступе к записи (403). Чаще всего это значит, что сама "
+                 "камера ничего не хранит: запись идёт на регистратор. Тогда в программе "
+                 "укажите адрес регистратора и номер канала этой камеры. Или у пользователя нет "
+                 "права «Воспроизведение»: создайте в камере отдельного пользователя с этим правом.",
+    "UNAUTHORIZED": "Логин или пароль не подошли (401). Проверьте их, как для входа в камеру.",
+    "NOT_FOUND": "Камера не нашла запись за это время (404): на ней нет карты памяти, запись "
+                 "выключена, либо запись идёт на регистратор.",
+    "CONNECT": "Не удаётся соединиться с камерой. Проверьте, что компьютер и камера в одной сети.",
     "NO_RECORDING": "Камера не отдала запись. Проверьте: в камере есть карта памяти и запись "
                     "включена; логин и пароль верные; камера Dahua (адрес записи у других "
                     "производителей другой).",

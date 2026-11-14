@@ -70,8 +70,45 @@ def test_a_failed_ffmpeg_never_logs_the_password(tmp_path, caplog):
         stderr = b"Server returned 401 for rtsp://admin:Pa%40ss@192.168.1.64"
 
     why = cut_clip(LIVE, 30, tmp_path / "x.mp4", run=lambda *a, **k: Proc(), exe="ffmpeg")
-    assert why == "NO_RECORDING"
+    assert why == "UNAUTHORIZED"
     assert "Pa%40ss" not in caplog.text and "admin" not in caplog.text.replace("Server", "")
+
+
+def test_the_log_never_holds_even_a_piece_of_the_password(tmp_path, caplog):
+    secret = "bubandit1210%3D"
+    live = f"rtsp://admin:{secret}@192.168.1.42:554/cam/realmonitor?channel=1&subtype=1"
+
+    class Proc:
+        returncode = 1
+        # the address is printed and the text is long: a cut at the end would
+        # have left the tail of the password
+        stderr = (f"Error opening input: rtsp://admin:{secret}@192.168.1.42:554/cam/playback?"
+                  f"channel=1&subtype=0&starttime=2026_11_14_15_32_20 Server returned 403 Forbidden"
+                  ).encode()
+
+    why = cut_clip(live, 4, tmp_path / "x.mp4", run=lambda *a, **k: Proc(), exe="ffmpeg")
+    assert why == "FORBIDDEN"
+    assert "bubandit" not in caplog.text and "1210" not in caplog.text and "%3D" not in caplog.text
+
+
+@pytest.mark.parametrize("words,reason", [
+    ("Server returned 403 Forbidden (access denied)", "FORBIDDEN"),
+    ("Server returned 401 Unauthorized (authorization failed)", "UNAUTHORIZED"),
+    ("Server returned 404 Not Found", "NOT_FOUND"),
+    ("Connection refused", "CONNECT"),
+    ("something else", "NO_RECORDING"),
+])
+def test_ffmpegs_words_become_a_reason(tmp_path, words, reason):
+    class Proc:
+        returncode = 1
+        stderr = words.encode()
+
+    assert cut_clip(LIVE, 4, tmp_path / "x.mp4", run=lambda *a, **k: Proc(), exe="ffmpeg") == reason
+
+
+def test_forbidden_tells_about_the_recorder():
+    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN")
+    assert not ok and "регистратор" in text
 
 
 def test_cut_clip_timeout_and_missing_ffmpeg(tmp_path):
