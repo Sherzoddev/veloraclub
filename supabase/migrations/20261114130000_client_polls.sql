@@ -1,0 +1,190 @@
+-- "Какие функции добавить?": one open question to the clients of the club bot.
+-- No options: the client presses one button and writes his idea in his own
+-- words (several ideas are fine). The owner does NOT get a message per answer:
+-- in the admin bot one button ("💡 Идеи клиентов") shows all the answers at once.
+
+create table if not exists public.polls (
+  id uuid primary key default gen_random_uuid(),
+  club_id uuid not null,
+  body_ru text not null,
+  body_uz text not null,
+  status text not null default 'DRAFT' check (status in ('DRAFT', 'OPEN', 'CLOSED')),
+  created_at timestamptz not null default now(),
+  sent_at timestamptz
+);
+
+create table if not exists public.poll_recipients (
+  poll_id uuid not null,
+  telegram_id bigint not null,
+  chat_id bigint not null,
+  lang text not null default 'ru',
+  sent_at timestamptz,
+  request_id bigint,
+  primary key (poll_id, telegram_id)
+);
+
+create table if not exists public.poll_ideas (
+  id uuid primary key default gen_random_uuid(),
+  poll_id uuid not null,
+  club_id uuid not null,
+  telegram_id bigint not null,
+  idea text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists poll_ideas_poll_idx on public.poll_ideas (poll_id, created_at);
+
+alter table public.polls enable row level security;
+alter table public.poll_recipients enable row level security;
+alter table public.poll_ideas enable row level security;
+drop policy if exists polls_select on public.polls;
+create policy polls_select on public.polls for select using (app_is_club_member(club_id));
+drop policy if exists poll_ideas_select on public.poll_ideas;
+create policy poll_ideas_select on public.poll_ideas for select using (app_is_club_member(club_id));
+
+-- A poll for the clients of the club bot. p_from_campaign: only clients who
+-- received that discount campaign (Telegram said ok), so nobody who blocked the
+-- bot is counted; null = every client of the bot.
+create or replace function public.bot_poll_create(
+  p_club_id uuid, p_body_ru text, p_body_uz text, p_from_campaign uuid default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_n integer;
+begin
+  insert into polls (club_id, body_ru, body_uz) values (p_club_id, p_body_ru, p_body_uz) returning id into v_id;
+  insert into poll_recipients (poll_id, telegram_id, chat_id, lang)
+  select distinct on (u.telegram_id) v_id, u.telegram_id, u.chat_id,
+         case when s.language = 'uz' then 'uz' else 'ru' end
+    from club_bot_users u
+    left join bot_state s on s.telegram_id = u.telegram_id
+   where u.club_id = p_club_id and u.role = 'CLIENT' and u.chat_id is not null
+     and (p_from_campaign is null or exists (
+           select 1 from discount_recipients d
+             join net._http_response r on r.id = d.request_id
+            where d.campaign_id = p_from_campaign and d.telegram_id = u.telegram_id
+              and r.status_code = 200))
+   order by u.telegram_id
+  on conflict do nothing;
+  get diagnostics v_n = row_count;
+  return jsonb_build_object('poll_id', v_id, 'recipients', v_n);
+end;
+$$;
+
+-- Send to the next p_limit clients that have not got it yet (call until "left" is 0).
+-- The message carries one button; its callback is "poll:<poll id>".
+create or replace function public.bot_poll_send(p_poll_id uuid, p_limit integer default 25)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_p polls%rowtype;
+  v_token text;
+  v_req bigint;
+  v_sent integer := 0;
+  r record;
+begin
+  select * into v_p from polls where id = p_poll_id for update;
+  if not found then raise exception 'POLL_NOT_FOUND'; end if;
+  select bot_token into v_token from club_bots where club_id = v_p.club_id and active limit 1;
+  if v_token is null then raise exception 'NO_BOT'; end if;
+  if v_p.status = 'DRAFT' then
+    update polls set status = 'OPEN', sent_at = now() where id = p_poll_id returning * into v_p;
+  end if;
+  for r in
+    select * from poll_recipients where poll_id = p_poll_id and sent_at is null
+     order by telegram_id limit greatest(p_limit, 1)
+  loop
+    v_req := net.http_post(
+      url := 'https://api.telegram.org/bot' || v_token || '/sendMessage',
+      timeout_milliseconds := 30000,
+      headers := jsonb_build_object('content-type', 'application/json'),
+      body := jsonb_build_object(
+        'chat_id', r.chat_id,
+        'text', case when r.lang = 'uz' then v_p.body_uz else v_p.body_ru end,
+        'parse_mode', 'HTML',
+        'reply_markup', jsonb_build_object('inline_keyboard', jsonb_build_array(jsonb_build_array(
+          jsonb_build_object(
+            'text', case when r.lang = 'uz' then '✍️ G''oya yozish' else '✍️ Написать идею' end,
+            'callback_data', 'poll:' || p_poll_id::text))))));
+    update poll_recipients set sent_at = now(), request_id = v_req
+     where poll_id = p_poll_id and telegram_id = r.telegram_id;
+    v_sent := v_sent + 1;
+  end loop;
+  return jsonb_build_object('sent_now', v_sent,
+    'left', (select count(*) from poll_recipients where poll_id = p_poll_id and sent_at is null));
+end;
+$$;
+
+-- One idea of a client (he may write several; at most 10 per poll).
+create or replace function public.bot_poll_idea(p_club_id uuid, p_tg_id bigint, p_poll_id uuid, p_text text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_text text := left(btrim(coalesce(p_text, '')), 1000);
+begin
+  if v_text = '' then return jsonb_build_object('ok', false, 'reason', 'EMPTY'); end if;
+  if not exists (select 1 from polls where id = p_poll_id and club_id = p_club_id and status = 'OPEN')
+     or not exists (select 1 from poll_recipients where poll_id = p_poll_id and telegram_id = p_tg_id) then
+    return jsonb_build_object('ok', false, 'reason', 'CLOSED');
+  end if;
+  if (select count(*) from poll_ideas where poll_id = p_poll_id and telegram_id = p_tg_id) >= 10 then
+    return jsonb_build_object('ok', false, 'reason', 'LIMIT');
+  end if;
+  insert into poll_ideas (poll_id, club_id, telegram_id, idea) values (p_poll_id, p_club_id, p_tg_id, v_text);
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- For the admin bot's one button: the counts and EVERY answer, newest first,
+-- with the author's name (card name, else bot name + @username).
+create or replace function public.bot_poll_results(p_club_id uuid, p_poll_id uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid := p_poll_id;
+begin
+  if v_id is null then
+    select id into v_id from polls where club_id = p_club_id and status <> 'DRAFT' order by sent_at desc nulls last limit 1;
+  end if;
+  if v_id is null then return jsonb_build_object('ok', false, 'reason', 'NO_POLL'); end if;
+  return jsonb_build_object(
+    'ok', true,
+    'poll_id', v_id,
+    'sent_at', (select sent_at from polls where id = v_id),
+    'recipients', (select count(*) from poll_recipients where poll_id = v_id and sent_at is not null),
+    'delivered', (select count(*) from poll_recipients r join net._http_response h on h.id = r.request_id
+                   where r.poll_id = v_id and h.status_code = 200),
+    'people', (select count(distinct telegram_id) from poll_ideas where poll_id = v_id),
+    'ideas', coalesce((select jsonb_agg(jsonb_build_object('who', x.who, 'idea', x.idea, 'at', x.created_at) order by x.created_at desc)
+      from (
+        select i.idea, i.created_at,
+               coalesce(
+                 (select nullif(c.full_name, '') from customers c where c.club_id = p_club_id and c.telegram_id = i.telegram_id limit 1),
+                 (select nullif(trim(coalesce(u.full_name, '') || case when u.username is not null then ' @' || u.username else '' end), '')
+                    from club_bot_users u where u.club_id = p_club_id and u.telegram_id = i.telegram_id limit 1),
+                 'ID ' || i.telegram_id) as who
+          from poll_ideas i where i.poll_id = v_id) x), '[]'::jsonb));
+end;
+$$;
+
+revoke all on function public.bot_poll_create(uuid, text, text, uuid) from public, anon, authenticated;
+revoke all on function public.bot_poll_send(uuid, integer) from public, anon, authenticated;
+revoke all on function public.bot_poll_idea(uuid, bigint, uuid, text) from public, anon, authenticated;
+revoke all on function public.bot_poll_results(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.bot_poll_create(uuid, text, text, uuid) to service_role;
+grant execute on function public.bot_poll_send(uuid, integer) to service_role;
+grant execute on function public.bot_poll_idea(uuid, bigint, uuid, text) to service_role;
+grant execute on function public.bot_poll_results(uuid, uuid) to service_role;
