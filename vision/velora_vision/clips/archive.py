@@ -8,20 +8,37 @@ program.
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 import subprocess
 import sys
-from datetime import datetime, timedelta
+import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
-from .encoder import ffmpeg_exe
-
 log = logging.getLogger("velora_vision.clips")
 
 STAMP = "%Y_%m_%d_%H_%M_%S"
 MAX_BYTES = 45 * 1024 * 1024  # what the server can pass on to Telegram
+
+
+def ffmpeg_exe() -> Optional[str]:
+    """The ffmpeg that comes with the program (or the one on the computer)."""
+    override = os.environ.get("VELORA_FFMPEG")
+    if override and Path(override).exists():
+        return override
+    try:
+        import imageio_ffmpeg
+
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and Path(exe).exists():
+            return exe
+    except Exception:
+        pass
+    return shutil.which("ffmpeg")
 
 
 def supports_playback(live_url: str) -> bool:
@@ -115,3 +132,40 @@ def _hide_password(text: str, source: str) -> str:
     except ValueError:
         pass
     return text
+
+
+# What the person is told when the test clip does not come out.
+REASONS = {
+    "NO_FFMPEG": "В программе нет видеокодера (ffmpeg). Скачайте программу заново.",
+    "TIMEOUT": "Камера слишком долго не отдаёт запись. Проверьте сеть и что камера не занята.",
+    "NO_RECORDING": "Камера не отдала запись. Проверьте: в камере есть карта памяти и запись "
+                    "включена; логин и пароль верные; камера Dahua (адрес записи у других "
+                    "производителей другой).",
+    "EMPTY": "Камера ответила, но видео пустое: за это время, похоже, нет записи.",
+    "TOO_BIG": "Ролик получился слишком большим.",
+    "FFMPEG_START": "Не удалось запустить видеокодер.",
+}
+
+
+def check_archive(
+    live_url: str, tz: str, now: Optional[datetime] = None,
+    cut: Callable = None, minutes_ago: float = 10, seconds: float = 4,
+) -> tuple[bool, str]:
+    """Tries to take a few seconds from the camera's recording of a few minutes
+    ago. Returns (worked, sentence for the person)."""
+    cut = cut or cut_clip
+    if not supports_playback(live_url):
+        return False, ("Адрес этой камеры не похож на Dahua: запись по времени для неё не "
+                       "поддерживается.")
+    now = now or datetime.now(timezone.utc)
+    start = now - timedelta(minutes=minutes_ago)
+    url = playback_url(live_url, start, start + timedelta(seconds=seconds), tz)
+    out = Path(tempfile.mkdtemp(prefix="vv_check_")) / "check.mp4"
+    try:
+        why = cut(url, seconds, out)
+        if why is None:
+            kb = out.stat().st_size // 1024
+            return True, f"✓ Запись камеры читается: взято {seconds:g} с видео ({kb} КБ)."
+        return False, REASONS.get(why, f"Не получилось ({why}).")
+    finally:
+        shutil.rmtree(out.parent, ignore_errors=True)

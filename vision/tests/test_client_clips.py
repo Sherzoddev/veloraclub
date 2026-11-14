@@ -6,12 +6,11 @@ from pathlib import Path
 import pytest
 import requests
 
-from velora_vision.clips.archive import (clip_window, cut_clip, cut_command, playback_url,
-                                         supports_playback)
+from velora_vision.clips.archive import (check_archive, clip_window, cut_clip, cut_command,
+                                         ffmpeg_exe, playback_url, supports_playback)
 from velora_vision.clips.client_clips import (ClipRequest, ClipRequestWorker, ClipsClient,
                                               ClipsError, table_sources)
-from velora_vision.clips.encoder import ffmpeg_exe
-from velora_vision.config import CameraCfg, TableCfg
+from velora_vision.settings import CameraSettings
 
 LIVE = "rtsp://admin:Pa%40ss@192.168.1.64:554/cam/realmonitor?channel=1&subtype=1"
 T = datetime(2026, 11, 14, 16, 47, 5, tzinfo=timezone.utc)  # 21:47:05 in Tashkent
@@ -46,12 +45,13 @@ def test_only_dahua_addresses_can_be_cut(live):
     assert playback_url(live, T, T, "Asia/Tashkent") is None
 
 
-def test_table_sources_skips_files_and_other_brands():
+def test_table_sources_skips_files_other_brands_and_cameras_without_a_table():
     cams = [
-        CameraCfg("A", LIVE, [TableCfg("Стол 1", felt=[(0, 0), (1, 0), (1, 1)])]),
-        CameraCfg("B", "rtsp://u:p@1.2.3.4/Streaming/Channels/101", [TableCfg("Стол 2")]),
-        CameraCfg("C", "video.mp4", [TableCfg("Стол 3")]),
-        CameraCfg("D", LIVE.replace("64", "65"), [TableCfg("Стол 1")]),
+        CameraSettings("a", "A", LIVE, "Стол 1"),
+        CameraSettings("b", "B", "rtsp://u:p@1.2.3.4/Streaming/Channels/101", "Стол 2"),
+        CameraSettings("c", "C", "video.mp4", "Стол 3"),
+        CameraSettings("d", "D", LIVE.replace("64", "65"), "Стол 1"),
+        CameraSettings("e", "E", LIVE.replace("64", "66"), "  "),
     ]
     assert table_sources(cams) == {"Стол 1": LIVE}
 
@@ -220,3 +220,23 @@ def test_a_lost_connection_does_not_stop_the_loop(tmp_path):
 
     w = make_worker(tmp_path, Down(), ok_cut)
     assert w.step() == 0 and w.step() == 0
+
+
+def test_check_archive_reports_a_clip_that_works(tmp_path):
+    def cut(url, seconds, out):
+        assert "starttime=2026_11_14_21_37_00" in url  # ten minutes before 21:47
+        out.write_bytes(b"x" * 20000)
+        return None
+
+    ok, text = check_archive(LIVE, "Asia/Tashkent", now=T.replace(minute=47, second=0), cut=cut)
+    assert ok and "читается" in text
+
+
+def test_check_archive_explains_a_camera_that_gives_nothing():
+    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "NO_RECORDING")
+    assert not ok and "карта памяти" in text
+
+
+def test_check_archive_says_when_the_camera_is_not_dahua():
+    ok, text = check_archive("rtsp://u:p@1.2.3.4/Streaming/Channels/101", "Asia/Tashkent")
+    assert not ok and "Dahua" in text
