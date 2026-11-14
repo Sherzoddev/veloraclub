@@ -185,7 +185,10 @@ def local_naive(moment: datetime, tz: Optional[tzinfo] = None) -> datetime:
 
 
 def concat_list(files: list[Path]) -> str:
-    return "".join(f"file '{str(f).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n" for f in files)
+    """The list ffmpeg's concat reads. Forward slashes also on Windows (a
+    backslash is an escape character there), a quote in a name is escaped."""
+    return "".join(f"file '{f.as_posix().replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'\n"
+                   for f in files)
 
 
 def cut_local(
