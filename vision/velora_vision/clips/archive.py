@@ -301,6 +301,8 @@ REASONS = {
     "NO_RECORDING": "Камера не отдала запись. Проверьте: в камере есть карта памяти и запись "
                     "включена; логин и пароль верные; камера Dahua (адрес записи у других "
                     "производителей другой).",
+    "NO_LOCAL": "Записи за это время нет: программа записывает камеры только пока она запущена, "
+                "и хранит запись ограниченное время.",
     "EMPTY": "Камера ответила, но видео пустое: за это время, похоже, нет записи.",
     "TOO_BIG": "Ролик получился слишком большим.",
     "FFMPEG_START": "Не удалось запустить видеокодер.",
@@ -343,5 +345,22 @@ def check_archive(
         if about:
             text += f"\n\nСам о себе камера сообщает: {about}."
         return False, text
+    finally:
+        shutil.rmtree(out.parent, ignore_errors=True)
+
+
+def check_live(live_url: str, quality: str = "light", cut: Callable = None,
+               seconds: float = 4) -> tuple[bool, str]:
+    """Can the program record this camera? Takes a few seconds of the live
+    picture the way the recording does and encodes them."""
+    from .local_record import record_url
+
+    cut = cut or cut_clip
+    out = Path(tempfile.mkdtemp(prefix="vv_live_")) / "live.mp4"
+    try:
+        why = cut(record_url(live_url, quality), seconds, out)
+        if why is None:
+            return True, "живой поток читается"
+        return False, REASONS.get(why, f"поток не читается ({why})")
     finally:
         shutil.rmtree(out.parent, ignore_errors=True)
