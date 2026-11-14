@@ -872,7 +872,7 @@ function clipReply(reason: string | undefined, ok: boolean, lang: Lang): string 
   }
   switch (reason) {
     case "TOO_FRESH": return L(lang, "Это было только что — подождите минутку и напишите время ещё раз.", "Bu hozirgina bo'ldi — bir daqiqa kutib, vaqtni qayta yozing.");
-    case "TOO_OLD": return L(lang, "Запись хранится 2 дня — это время уже недоступно.", "Yozuv 2 kun saqlanadi — bu vaqt endi mavjud emas.");
+    case "TOO_OLD": return L(lang, "Запись хранится 24 часа — это время уже недоступно.", "Yozuv 24 soat saqlanadi — bu vaqt endi mavjud emas.");
     case "BUSY": return L(lang, "Предыдущий ролик ещё готовится — подождите, пожалуйста.", "Oldingi video hali tayyorlanyapti — iltimos, kuting.");
     case "LIMIT": return L(lang, "Слишком много запросов. Попробуйте через час.", "So'rovlar juda ko'p. Bir soatdan keyin urinib ko'ring.");
     default: return L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas.");
@@ -2369,8 +2369,8 @@ app.post("/club-bot", async (req, res) => {
         }
         const t0 = todayInZone(c.timezone);
         await send(token, chatId, L(lang,
-          `🎬 <b>${esc(picked.name)}</b>\n\nКогда это было? Запись хранится 2 дня.`,
-          `🎬 <b>${esc(picked.name)}</b>\n\nBu qachon bo'lgan? Yozuv 2 kun saqlanadi.`), {
+          `🎬 <b>${esc(picked.name)}</b>\n\nКогда это было? Запись хранится 24 часа.`,
+          `🎬 <b>${esc(picked.name)}</b>\n\nBu qachon bo'lgan? Yozuv 24 soat saqlanadi.`), {
           parse_mode: "HTML",
           reply_markup: { inline_keyboard: [[0, 1].map((back) => {
             const d = new Date(Date.UTC(t0.y, t0.mo - 1, t0.d - back));
