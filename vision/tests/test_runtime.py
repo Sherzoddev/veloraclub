@@ -1,5 +1,6 @@
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -12,13 +13,23 @@ LIVE = "rtsp://admin:p@10.0.0.2:554/cam/realmonitor?channel=1&subtype=1"
 
 
 class FakeWorker(threading.Thread):
-    def __init__(self, client, sources, tmp_dir, stop):
+    def __init__(self, client, sources, tmp_dir, stop, local=None):
         super().__init__(daemon=True)
-        self.sources, self.stop_event = sources, stop
+        self.sources, self.stop_event, self.local = sources, stop, local
         self.sent = self.failed = 0
 
     def run(self):
         self.stop_event.wait(5)
+
+
+class FakeLocal:
+    def __init__(self, sources, root, stop, keep_hours, quality):
+        self.sources, self.root, self.keep_hours, self.quality = sources, root, keep_hours, quality
+        self.recorders = []
+        self.started = False
+
+    def start(self):
+        self.started = True
 
 
 def snapshot(*names):
@@ -27,7 +38,8 @@ def snapshot(*names):
 
 
 def make(settings, snap=None, error=None, monkeypatch=None):
-    c = Controller(lambda: settings, None, worker_factory=FakeWorker)
+    c = Controller(lambda: settings, Path("/nonexistent/tmp"), worker_factory=FakeWorker,
+                   local_factory=FakeLocal)
 
     def fetch(_settings):
         if error:
@@ -88,8 +100,48 @@ def test_check_camera_uses_the_clubs_time_zone(monkeypatch):
     seen = {}
     monkeypatch.setattr("velora_vision.runtime.check_archive",
                         lambda url, tz: seen.update(url=url, tz=tz) or (True, "ok"))
-    assert c.check_camera(LIVE) == (True, "ok")
-    assert seen["tz"] == "Asia/Tashkent"
+    monkeypatch.setattr("velora_vision.runtime.check_live", lambda url, q: (True, "поток"))
+    ok, text = c.check_camera(LIVE)
+    assert ok and seen["tz"] == "Asia/Tashkent" and "Запись на компьютере возможна" in text
+
+
+def test_a_camera_without_an_archive_is_still_fine_when_the_live_picture_reads(monkeypatch):
+    c = make(good(), snapshot("Стол 1"))
+    monkeypatch.setattr("velora_vision.runtime.check_archive", lambda url, tz: (False, "403"))
+    monkeypatch.setattr("velora_vision.runtime.check_live", lambda url, q: (True, "живой поток читается"))
+    ok, text = c.check_camera(LIVE)
+    assert ok and "Архив самой камеры недоступен" in text
+
+
+def test_a_camera_that_gives_nothing_is_reported(monkeypatch):
+    c = make(good(), snapshot("Стол 1"))
+    monkeypatch.setattr("velora_vision.runtime.check_archive", lambda url, tz: (False, "403"))
+    monkeypatch.setattr("velora_vision.runtime.check_live", lambda url, q: (False, "нет связи"))
+    ok, text = c.check_camera(LIVE)
+    assert not ok and "Живой поток не читается" in text and "403" in text
+
+
+def test_the_own_recording_starts_with_the_work_and_is_given_to_the_worker():
+    s = good()
+    s.keep_hours, s.record_quality = 12, "main"
+    c = make(s, snapshot("Стол 1"))
+    c.start()
+    assert wait_for(c, {RUNNING, FAILED}) == RUNNING
+    assert c.local.started and c.local.keep_hours == 12 and c.local.quality == "main"
+    assert c.worker.local is c.local
+    assert "запись на компьютере идёт" in c.message
+    c.stop()
+    assert c.local is None
+
+
+def test_the_own_recording_can_be_switched_off():
+    s = good()
+    s.local_record = False
+    c = make(s, snapshot("Стол 1"))
+    c.start()
+    assert wait_for(c, {RUNNING, FAILED}) == RUNNING
+    assert c.local is None and c.worker.local is None
+    c.stop()
 
 
 def test_a_table_that_is_not_in_velora_club_stops_the_start_and_names_the_real_ones():

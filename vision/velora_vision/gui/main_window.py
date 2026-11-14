@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import sys
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
 from .. import __version__, autostart
@@ -28,7 +29,8 @@ class MainWindow:
         self.root = root
         self.folder = folder
         self.settings: Settings = settings_mod.load(folder)
-        self.controller = controller or Controller(lambda: self.settings, folder / "tmp")
+        self.controller = controller or Controller(lambda: self.settings, folder / "tmp",
+                                                   records_dir=folder / "records")
         self.bg = Background(root)
         self._save_job = None
         self._log_len = -1
@@ -117,6 +119,8 @@ class MainWindow:
                 "быть запущена, а компьютер включён.", 760).pack(anchor="w", padx=16)
         self.count_label = ttk.Label(t, text="", font=FONT_BOLD)
         self.count_label.pack(anchor="w", padx=16, pady=(16, 0))
+        self.record_label = ttk.Label(t, text="", foreground=GREY)
+        self.record_label.pack(anchor="w", padx=16, pady=(4, 0))
 
     # ================= bot =================
     def _build_bot(self) -> None:
@@ -196,8 +200,8 @@ class MainWindow:
         self.cam_result = ttk.Label(t, text="", wraplength=760, justify="left")
         self.cam_result.pack(anchor="w", padx=16, pady=(2, 4))
         hint(t, "У каждой камеры укажите, какой стол она снимает (название как в программе "
-                "Velora Club). «Проверить запись камеры» берёт несколько секунд из записи "
-                "десятиминутной давности: так видно, что камера отдаёт архив.", 760
+                "Velora Club). «Проверить запись камеры» проверяет, что программа может записывать "
+                "эту камеру, и читается ли собственный архив камеры.", 760
              ).pack(anchor="w", padx=16, pady=(0, 12))
 
     def _selected_camera(self) -> Optional[CameraSettings]:
@@ -255,7 +259,9 @@ class MainWindow:
             return
         self.check_cam_btn.config(state="disabled")
         self.cam_result.config(text="Проверяю… это может занять до минуты.", foreground=GREY)
-        self.bg.run(lambda: self.controller.check_camera(cam.url), self._check_camera_done)
+        self._collect()
+        quality = self.settings.record_quality
+        self.bg.run(lambda: self.controller.check_camera(cam.url, quality), self._check_camera_done)
 
     def _check_camera_done(self, result, error) -> None:
         self.check_cam_btn.config(state="normal")
@@ -267,7 +273,42 @@ class MainWindow:
     # ================= settings =================
     def _build_settings(self) -> None:
         t = self.tab_set
-        ttk.Label(t, text="Запуск", font=FONT_BOLD).pack(anchor="w", padx=16, pady=(16, 0))
+        ttk.Label(t, text="Запись камер на этом компьютере", font=FONT_BOLD).pack(
+            anchor="w", padx=16, pady=(16, 0))
+        self.local_record = tk.BooleanVar(value=self.settings.local_record)
+        ttk.Checkbutton(t, text="Вести запись камер (из неё вырезаются ролики по просьбам клиентов)",
+                        variable=self.local_record, command=self._changed).pack(anchor="w", padx=28, pady=2)
+        hint(t, "У многих камер программа не может взять их собственный архив (ответ 403). Поэтому "
+                "она сама хранит последние часы живой картинки и режет клип оттуда. Нагрузка на "
+                "компьютер почти нулевая: видео копируется без пережатия.", 740
+             ).pack(anchor="w", padx=28)
+        row = ttk.Frame(t)
+        row.pack(fill="x", padx=28, pady=(8, 0))
+        ttk.Label(row, text="Хранить запись, часов", width=28).pack(side="left")
+        self.keep_hours = tk.StringVar(value=str(self.settings.keep_hours))
+        ttk.Spinbox(row, from_=2, to=168, width=6, textvariable=self.keep_hours).pack(side="left")
+        self.keep_hours.trace_add("write", lambda *_: self._changed())
+        self.quality = tk.StringVar(value=self.settings.record_quality)
+        ttk.Radiobutton(t, text="Лёгкий поток камеры (рекомендуется): примерно 0,3–1 ГБ в час на камеру",
+                        value="light", variable=self.quality, command=self._changed
+                        ).pack(anchor="w", padx=28, pady=(8, 0))
+        ttk.Radiobutton(t, text="Основной поток (чётче, но много места: у вас около 2,7 ГБ в час на камеру)",
+                        value="main", variable=self.quality, command=self._changed
+                        ).pack(anchor="w", padx=28)
+        row2 = ttk.Frame(t)
+        row2.pack(fill="x", padx=28, pady=(10, 0))
+        ttk.Label(row2, text="Папка для записи", width=28).pack(side="left")
+        self.records_dir = tk.StringVar(value=self.settings.records_dir)
+        ttk.Entry(row2, textvariable=self.records_dir, width=34).pack(side="left")
+        ttk.Button(row2, text="Выбрать…", command=self._pick_records_dir).pack(side="left", padx=6)
+        self.records_dir.trace_add("write", lambda *_: self._changed())
+        self.disk_label = ttk.Label(t, text="", foreground=GREY)
+        self.disk_label.pack(anchor="w", padx=28, pady=(4, 0))
+        hint(t, "Пусто: папка с данными программы. Лучше указать диск, где есть свободное место "
+                "(например, D:\\Записи).", 740).pack(anchor="w", padx=28)
+        self._show_disk()
+
+        ttk.Label(t, text="Запуск", font=FONT_BOLD).pack(anchor="w", padx=16, pady=(20, 0))
         self.autostart = tk.BooleanVar(value=self.settings.autostart)
         ttk.Checkbutton(t, text="Запускать вместе с Windows", variable=self.autostart,
                         command=self._changed,
@@ -276,6 +317,27 @@ class MainWindow:
         self.run_on_open = tk.BooleanVar(value=self.settings.run_on_open)
         ttk.Checkbutton(t, text="Начинать работу сразу при открытии программы",
                         variable=self.run_on_open, command=self._changed).pack(anchor="w", padx=28, pady=2)
+
+    def _pick_records_dir(self) -> None:
+        chosen = filedialog.askdirectory(parent=self.root, title="Папка для записи камер")
+        if chosen:
+            self.records_dir.set(chosen)
+            self._show_disk()
+
+    def _records_path(self) -> Path:
+        text = self.records_dir.get().strip()
+        return Path(text) if text else self.folder / "records"
+
+    def _show_disk(self) -> None:
+        path = self._records_path()
+        probe = path
+        while not probe.exists() and probe.parent != probe:
+            probe = probe.parent
+        try:
+            free = shutil.disk_usage(probe).free / 1e9
+            self.disk_label.config(text=f"Свободно на этом диске: {free:.0f} ГБ")
+        except OSError:
+            self.disk_label.config(text="")
 
     # ================= log =================
     def _build_log(self) -> None:
@@ -293,6 +355,13 @@ class MainWindow:
         s.bot_token = self.token.get().strip()
         s.autostart = bool(self.autostart.get())
         s.run_on_open = bool(self.run_on_open.get())
+        s.local_record = bool(self.local_record.get())
+        try:
+            s.keep_hours = min(168, max(2, int(float(self.keep_hours.get()))))
+        except ValueError:
+            pass  # half-typed number: keep the old value
+        s.record_quality = "main" if self.quality.get() == "main" else "light"
+        s.records_dir = self.records_dir.get().strip()
 
     def _changed(self) -> None:
         if self._save_job:
@@ -356,8 +425,23 @@ class MainWindow:
         self.count_label.config(
             text=f"Роликов отправлено клиентам: {w.sent}, не получилось: {w.failed}"
             if w is not None and c.state == RUNNING else "")
+        self._refresh_record()
         self._refresh_log()
         self.root.after(1000, self._tick)
+
+    def _refresh_record(self) -> None:
+        """Every few seconds: how much the own recording has taken."""
+        loc = self.controller.local
+        if loc is None or self.controller.state != RUNNING:
+            self.record_label.config(text="")
+            return
+        now = self.root.tk.call("clock", "seconds")
+        if now - getattr(self, "_record_at", 0) < 10:
+            return
+        self._record_at = now
+        gb = loc.size_bytes() / 1e9
+        self.record_label.config(text=f"Запись на компьютере: идёт, занято {gb:.1f} ГБ "
+                                      f"(хранится последние {loc.keep_hours:g} ч)")
 
     def _refresh_log(self) -> None:
         if self.nb.index(self.nb.select()) != TAB_LOG:

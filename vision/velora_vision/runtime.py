@@ -11,8 +11,9 @@ from collections import deque
 from pathlib import Path
 from typing import Callable, Optional
 
-from .clips.archive import check_archive
+from .clips.archive import check_archive, check_live
 from .clips.client_clips import ClipRequestWorker, ClipsClient, table_sources
+from .clips.local_record import LocalRecording
 from .sessions import ClubSnapshot, SessionsClient, SessionsError
 from .settings import Settings
 
@@ -38,10 +39,14 @@ class LogBuffer(logging.Handler):
 
 class Controller:
     def __init__(self, get_settings: Callable[[], Settings], tmp_dir: Path,
-                 worker_factory=ClipRequestWorker):
+                 worker_factory=ClipRequestWorker, records_dir: Optional[Path] = None,
+                 local_factory=LocalRecording):
         self.get_settings = get_settings
         self.tmp_dir = tmp_dir
         self.worker_factory = worker_factory
+        self.records_dir = records_dir or tmp_dir.parent / "records"
+        self.local_factory = local_factory
+        self.local: Optional[LocalRecording] = None
         self.state = STOPPED
         self.message = "Остановлено"
         self.club: Optional[ClubSnapshot] = None  # last answer of the server
@@ -59,9 +64,18 @@ class Controller:
     def timezone(self) -> str:
         return self.club.timezone if self.club else "Asia/Tashkent"
 
-    def check_camera(self, url: str) -> tuple[bool, str]:
-        """Takes a few seconds from the camera's recording, to show the way works."""
-        return check_archive(url, self.timezone())
+    def check_camera(self, url: str, quality: str = "light") -> tuple[bool, str]:
+        """Can the program record this camera, and does the camera give its own
+        archive? Takes a few seconds of each."""
+        live_ok, live_text = check_live(url, quality)
+        arch_ok, arch_text = check_archive(url, self.timezone())
+        if live_ok:
+            tail = ("Архив самой камеры тоже читается." if arch_ok else
+                    "Архив самой камеры недоступен: это не мешает, видео берётся из записи на компьютере.")
+            return True, f"✓ Запись на компьютере возможна ({live_text}). {tail}"
+        if arch_ok:
+            return True, f"{arch_text}\nЖивой поток не читается ({live_text}): запись на компьютере вестись не будет."
+        return False, f"Живой поток не читается: {live_text}\n\n{arch_text}"
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -77,7 +91,11 @@ class Controller:
             self._thread.join(timeout=10)
         if self.worker:
             self.worker.join(timeout=10)
+        if self.local:
+            for r in self.local.recorders:
+                r.join(timeout=8)
         self.worker = None
+        self.local = None
         self.state, self.message = STOPPED, "Остановлено"
 
     def is_active(self) -> bool:
@@ -111,11 +129,20 @@ class Controller:
                 names = ", ".join(r.name for r in snap.resources) or "—"
                 return self._fail("Выбранные у камер столы не найдены в Velora Club. Выберите "
                                   f"стол из списка (вкладка «2. Камеры»). Столы клуба: {names}.")
+            self.local = None
+            if settings.local_record:
+                root = Path(settings.records_dir.strip()) if settings.records_dir.strip() else self.records_dir
+                self.local = self.local_factory(sources, root, stop, settings.keep_hours,
+                                                settings.record_quality)
+                self.local.start()
             self.worker = self.worker_factory(
-                ClipsClient(settings.supabase_url, settings.bot_token), sources, self.tmp_dir, stop)
+                ClipsClient(settings.supabase_url, settings.bot_token), sources, self.tmp_dir, stop,
+                local=self.local)
             self.worker.start()
             self.state = RUNNING
-            self.message = f"Работает: столов {len(sources)}. Жду заявок клиентов из бота."
+            self.message = (f"Работает: столов {len(sources)}"
+                            f"{', запись на компьютере идёт' if self.local else ''}. "
+                            "Жду заявок клиентов из бота.")
         except Exception as e:  # never die silently
             log.exception("Запуск не удался из-за ошибки")
             self._fail(f"Ошибка: {e}")

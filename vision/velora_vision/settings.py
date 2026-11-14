@@ -31,6 +31,11 @@ class Settings:
     cameras: list[CameraSettings] = field(default_factory=list)
     autostart: bool = False  # start with Windows
     run_on_open: bool = True  # begin working as soon as the program opens
+    # The program's own recording of the cameras (see clips/local_record.py)
+    local_record: bool = True
+    keep_hours: int = 36  # how long the pieces are kept
+    record_quality: str = "light"  # "light": the camera's light stream, "main": the main one
+    records_dir: str = ""  # empty: the program's data folder
 
     # -- helpers ----------------------------------------------------------
     def new_camera_id(self) -> str:
@@ -62,6 +67,10 @@ class Settings:
             ],
             "autostart": self.autostart,
             "run_on_open": self.run_on_open,
+            "local_record": self.local_record,
+            "keep_hours": self.keep_hours,
+            "record_quality": self.record_quality,
+            "records_dir": self.records_dir,
         }
 
     @classmethod
@@ -82,6 +91,13 @@ class Settings:
         # are simply not read: the program no longer does those things.
         d.autostart = bool(data.get("autostart", False))
         d.run_on_open = bool(data.get("run_on_open", True))
+        d.local_record = bool(data.get("local_record", True))
+        try:
+            d.keep_hours = min(168, max(2, int(data.get("keep_hours", d.keep_hours))))
+        except (TypeError, ValueError):
+            pass
+        d.record_quality = "main" if data.get("record_quality") == "main" else "light"
+        d.records_dir = str(data.get("records_dir") or "")
         return d
 
 

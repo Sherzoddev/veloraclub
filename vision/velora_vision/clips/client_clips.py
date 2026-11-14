@@ -113,7 +113,8 @@ def table_sources(cameras) -> dict[str, str]:
 class ClipRequestWorker(threading.Thread):
     def __init__(self, client: ClipsClient, sources: dict[str, str], tmp_dir: Path,
                  stop: threading.Event, cut: Callable = cut_clip,
-                 poll_every: float = POLL_EVERY, shift_of: Callable = clock_shift):
+                 poll_every: float = POLL_EVERY, shift_of: Callable = clock_shift,
+                 local=None):
         super().__init__(name="client-clips", daemon=True)
         self.client = client
         self.sources = sources
@@ -122,6 +123,7 @@ class ClipRequestWorker(threading.Thread):
         self.cut = cut
         self.poll_every = poll_every
         self.shift_of = shift_of
+        self.local = local  # the program's own recording (LocalRecording) or None
         self._shifts: dict[str, tuple[float, timedelta]] = {}  # camera -> (asked at, shift)
         self.sent = 0
         self.failed = 0
@@ -167,19 +169,34 @@ class ClipRequestWorker(threading.Thread):
         self._shifts[source] = (time.time(), shift)
         return shift
 
-    def handle(self, req: ClipRequest, tz: str) -> bool:
+    def _make_clip(self, req: ClipRequest, tz: str, out: Path) -> Optional[str]:
+        """Cuts the clip into `out`: from the program's own recording if it
+        holds that time, else from the camera's archive. None when done, else
+        the reason."""
+        local_why = None
+        if self.local is not None:
+            local_why = self.local.cut(req.table, req.moment, BEFORE, AFTER, out)
+            if local_why is None:
+                return None
         source = self.sources.get(req.table)
-        start, end = clip_window(req.moment, BEFORE, AFTER)
         shift = self._shift(source, tz) if source else timedelta(0)
-        urls = playback_urls(source, start, end, tz, shift) if source else []
+        urls = playback_urls(source, *clip_window(req.moment, BEFORE, AFTER), tz, shift) if source else []
         if not urls:
+            return local_why or "NO_CAMERA"
+        why, _ = cut_first_working(urls, BEFORE + AFTER, out, self.cut)
+        # Told to the person: the camera's own refusal says less than "we have
+        # no recording of that time", which is what a recording of ours means.
+        return None if why is None else (local_why if local_why == "NO_LOCAL" else why)
+
+    def handle(self, req: ClipRequest, tz: str) -> bool:
+        if req.table not in self.sources:
             self.failed += 1
             self.client.fail(req.id, "NO_CAMERA")
             return False
         self.tmp_dir.mkdir(parents=True, exist_ok=True)
         out = self.tmp_dir / f"clip_ask_{req.id[:8]}.mp4"
         try:
-            why, _ = cut_first_working(urls, BEFORE + AFTER, out, self.cut)
+            why = self._make_clip(req, tz, out)
             if why is not None:
                 self.failed += 1
                 log.warning("Ролик по заявке не получился (%s, %s)", req.table, why)
