@@ -1,3 +1,3 @@
-"""Velora Vision: who stands at the billiard tables, compared with the program."""
+"""Velora Vision: cuts a client's moment out of the camera's recording on request."""
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

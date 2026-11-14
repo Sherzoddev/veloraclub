@@ -2,10 +2,8 @@
 
 Velora Vision использует:
 
-- **YOLOX** (модели `yolox_s.onnx`, `yolox_tiny.onnx`): Apache License 2.0,
-  © Megvii Inc. https://github.com/Megvii-BaseDetection/YOLOX
 - **OpenCV** (opencv-python-headless): Apache License 2.0. https://opencv.org
-  В составе пакета есть FFmpeg для чтения потоков камер (LGPL).
+  В составе пакета есть FFmpeg для проверки адреса камеры (LGPL).
 - **NumPy**: BSD-3-Clause. https://numpy.org
 - **Requests**: Apache License 2.0.
 - **FFmpeg** (в пакете `imageio-ffmpeg`, файл `ffmpeg-*.exe`): сборка с

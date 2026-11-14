@@ -97,14 +97,14 @@ class ClipsClient:
 def table_sources(cameras) -> dict[str, str]:
     """table name -> live address of the camera that can be cut (Dahua only).
 
-    `cameras` are CameraCfg objects; the first suitable camera of a table wins.
+    `cameras` are CameraSettings; a camera without a table is skipped and the
+    first suitable camera of a table wins.
     """
     out: dict[str, str] = {}
     for cam in cameras:
-        if cam.is_file or not supports_playback(cam.source):
-            continue
-        for t in cam.tables:
-            out.setdefault(t.resource, cam.source)
+        table = cam.table.strip()
+        if table and "://" in cam.url and supports_playback(cam.url):
+            out.setdefault(table, cam.url)
     return out
 
 

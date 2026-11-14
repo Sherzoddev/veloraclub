@@ -1,6 +1,6 @@
 # Builds the camera program (vision/) into a ready Windows folder: unzip,
 # double-click VeloraVision.exe. Runs the tests, packs the program, then runs
-# the packed program's own self-test (models, video encoder and window library
+# the packed program's own self-test (video encoder and window library
 # really came along). A build of main is also published as the
 # "vision-latest" release.
 name: Velora Vision (Windows)
@@ -37,12 +37,11 @@ jobs:
           cache-dependency-path: vision/requirements*.txt
 
       - run: python -m pip install -r requirements-dev.txt
-      - run: python scripts/get_models.py
       - run: python -m pytest -q
 
       - run: python scripts/build.py
 
-      # The packed program checks itself: models load, a clip is encoded.
+      # The packed program checks itself: a clip is cut, the window library is there.
       - name: Self-test of the packed program
         shell: pwsh
         run: |
