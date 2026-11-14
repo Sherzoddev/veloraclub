@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import requests
 
-from velora_vision.clips.archive import (camera_clock, check_archive, clip_window, clock_shift,
+from velora_vision.clips.archive import (camera_clock, camera_report, check_archive, clip_window, clock_shift,
                                          cut_clip, cut_command, cut_first_working,
                                          describe_shift, ffmpeg_exe, playback_url,
                                          playback_urls, supports_playback)
@@ -110,7 +110,7 @@ def test_ffmpegs_words_become_a_reason(tmp_path, words, reason):
 
 def test_forbidden_tells_about_the_recorder():
     ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN",
-                             shift_of=lambda *a: timedelta(0))
+                             shift_of=lambda *a: timedelta(0), report_of=lambda *a: "")
     assert not ok and "регистратор" in text
 
 
@@ -276,7 +276,7 @@ def test_check_archive_reports_a_clip_that_works(tmp_path):
 
 def test_check_archive_explains_a_camera_that_gives_nothing():
     ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "NO_RECORDING",
-                             shift_of=lambda *a: timedelta(0))
+                             shift_of=lambda *a: timedelta(0), report_of=lambda *a: "")
     assert not ok and "карта памяти" in text
 
 
@@ -291,6 +291,8 @@ def test_playback_urls_offer_a_few_spellings_the_usual_one_first():
     assert "subtype=0" in urls[0]
     assert "subtype" not in urls[1] and "channel=1&starttime=" in urls[1]
     assert "subtype=1" in urls[2]  # the live address was the light stream
+    assert urls[3].startswith("http://admin:Pa%40ss@192.168.1.64/cgi-bin/playBack.cgi?action=getStream")
+    assert "startTime=2026-11-14%2021%3A46%3A53" in urls[3] and "channel=1" in urls[3]
     assert playback_urls("rtsp://u:p@1.2.3.4/Streaming/Channels/101", T, T, "Asia/Tashkent") == []
 
 
@@ -312,13 +314,13 @@ def test_the_next_spelling_is_tried_when_the_first_is_refused(tmp_path):
 def test_every_spelling_refused_reports_the_first_reason(tmp_path):
     why, tried = cut_first_working(playback_urls(LIVE, T, T, "Asia/Tashkent"), 4,
                                    tmp_path / "x.mp4", lambda u, s, o: "FORBIDDEN" if "subtype=0" in u else "NOT_FOUND")
-    assert why == "FORBIDDEN" and tried == ["FORBIDDEN", "NOT_FOUND", "NOT_FOUND"]
+    assert why == "FORBIDDEN" and tried == ["FORBIDDEN", "NOT_FOUND", "NOT_FOUND", "FORBIDDEN"]
 
 
 def test_check_archive_lists_what_every_spelling_answered():
     ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN",
-                             shift_of=lambda *a: timedelta(0))
-    assert not ok and "Пробовал 3 вариантов" in text and "SmartPSS" in text
+                             shift_of=lambda *a: timedelta(0), report_of=lambda *a: "")
+    assert not ok and "Пробовал 4 вариантов" in text and "SmartPSS" in text
 
 
 class ClockHttp:
@@ -384,5 +386,78 @@ def test_the_worker_asks_for_the_cameras_time_not_the_clubs(tmp_path):
 
 def test_check_archive_tells_about_a_wrong_camera_clock():
     ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN",
-                             shift_of=lambda *a: timedelta(hours=-5))
+                             shift_of=lambda *a: timedelta(hours=-5), report_of=lambda *a: "")
     assert not ok and "Часы камеры не совпадают" in text and "5 ч позади" in text
+
+
+def test_camera_report_names_the_model_and_the_card():
+    class Http:
+        def get(self, url, **kw):
+            body = {
+                "getSystemInfo": "deviceType=IPC-HFW1230S\r\nserialNumber=X\r\n",
+                "getDeviceAllInfo": "list.info[0].Detail[0].TotalBytes=119000000000\r\n",
+            }[url.split("action=")[1]]
+            r = Resp(200, None)
+            r.text = body
+            return r
+
+    text = camera_report(LIVE, Http())
+    assert "IPC-HFW1230S" in text and "карта памяти: есть, 119 ГБ" in text
+
+
+def test_camera_report_without_a_card():
+    class Http:
+        def get(self, url, **kw):
+            r = Resp(200, None)
+            r.text = "deviceType=IPC-X\r\n" if "getSystemInfo" in url else "found=0\r\n"
+            return r
+
+    assert "карты памяти в камере нет" in camera_report(LIVE, Http())
+
+
+def test_a_refused_check_adds_what_the_camera_says_about_itself():
+    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN",
+                             shift_of=lambda *a: timedelta(0),
+                             report_of=lambda *a: "камера IPC-X, карты памяти в камере нет")
+    assert not ok and "Сам о себе камера сообщает: камера IPC-X" in text
+
+
+@pytest.mark.skipif(not ffmpeg_exe(), reason="ffmpeg is not available")
+def test_a_clip_can_be_cut_from_the_cameras_web_address(tmp_path):
+    """The HTTP spelling of the playback address: a stand-in camera serves a
+    video at /cgi-bin/playBack.cgi and ffmpeg reads it from there."""
+    import http.server
+
+    exe = ffmpeg_exe()
+    source = tmp_path / "rec.mp4"
+    subprocess.run([exe, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "testsrc=size=1280x720:rate=15", "-t", "6", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-movflags", "frag_keyframe+empty_moov", str(source)], check=True)
+    data = source.read_bytes()
+    asked = []
+
+    class Camera(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            asked.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Camera)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        live = f"rtsp://admin:pw@127.0.0.1:{server.server_port}/cam/realmonitor?channel=2&subtype=0"
+        web = playback_urls(live, T, T + timedelta(seconds=4), "Asia/Tashkent")[-1]
+        # the camera's web port is 80 on a real camera; here it is the test server's
+        web = web.replace("@127.0.0.1/", f"@127.0.0.1:{server.server_port}/")
+        out = tmp_path / "clip.mp4"
+        assert cut_clip(web, 3, out, exe=exe) is None
+        assert out.stat().st_size > 1000
+        assert asked and "channel=2" in asked[0] and "action=getStream" in asked[0]
+        assert "startTime=2026-11-14%2021%3A47%3A05" in asked[0]
+    finally:
+        server.shutdown()

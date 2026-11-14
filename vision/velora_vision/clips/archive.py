@@ -17,7 +17,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 log = logging.getLogger("velora_vision.clips")
@@ -78,7 +78,17 @@ def playback_urls(live_url: str, start: datetime, end: datetime, tz: str,
     queries = [f"channel={channel}&subtype=0&{stamps}", f"channel={channel}&{stamps}"]
     if live_subtype.isdigit() and live_subtype != "0":
         queries.append(f"channel={channel}&subtype={live_subtype}&{stamps}")
-    return [urlunsplit((parts.scheme, parts.netloc, path, q, "")) for q in queries]
+    urls = [urlunsplit((parts.scheme, parts.netloc, path, q, "")) for q in queries]
+    # The camera's web interface gives the same recording over HTTP: some
+    # cameras refuse it over RTSP (403) but serve it here, like SmartPSS does.
+    userinfo = parts.netloc.rpartition("@")[0]
+    web = f"{userinfo}@{parts.hostname}" if userinfo else str(parts.hostname)
+    web_first = (start.astimezone(zone).replace(tzinfo=None) + shift).strftime("%Y-%m-%d %H:%M:%S")
+    web_last = (end.astimezone(zone).replace(tzinfo=None) + shift).strftime("%Y-%m-%d %H:%M:%S")
+    urls.append(urlunsplit(("http", web, "/cgi-bin/playBack.cgi", quote(
+        f"action=getStream&channel={channel}&subtype=0&startTime={web_first}&endTime={web_last}",
+        safe="=&"), "")))
+    return urls
 
 
 def playback_url(live_url: str, start: datetime, end: datetime, tz: str,
@@ -95,8 +105,9 @@ def playback_url(live_url: str, start: datetime, end: datetime, tz: str,
 _CLOCK = re.compile(r"result=(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})")
 
 
-def camera_clock(live_url: str, http=None, timeout: float = 6) -> Optional[datetime]:
-    """The time the camera shows (naive), asked over its web interface, or None."""
+def camera_get(live_url: str, path: str, http=None, timeout: float = 6) -> Optional[str]:
+    """Text of a page of the camera's web interface (Dahua CGI), or None. The
+    login and password are the ones of the stream address."""
     import requests
     from requests.auth import HTTPBasicAuth, HTTPDigestAuth
 
@@ -109,20 +120,52 @@ def camera_clock(live_url: str, http=None, timeout: float = 6) -> Optional[datet
         return None
     if not host:
         return None
-    url = f"http://{host}/cgi-bin/global.cgi?action=getCurrentTime"
+    url = f"http://{host}{path}"
     for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
         try:
             resp = http.get(url, auth=auth, timeout=timeout)
         except requests.RequestException:
             return None
-        m = _CLOCK.search(resp.text or "") if resp.status_code == 200 else None
-        if m:
-            y, mo, d, h, mi, sec = map(int, m.groups())
-            try:
-                return datetime(y, mo, d, h, mi, sec)
-            except ValueError:
-                return None
+        if resp.status_code == 200 and (resp.text or "").strip():
+            return resp.text
     return None
+
+
+def camera_clock(live_url: str, http=None, timeout: float = 6) -> Optional[datetime]:
+    """The time the camera shows (naive), asked over its web interface, or None."""
+    text = camera_get(live_url, "/cgi-bin/global.cgi?action=getCurrentTime", http, timeout)
+    m = _CLOCK.search(text or "")
+    if not m:
+        return None
+    y, mo, d, h, mi, sec = map(int, m.groups())
+    try:
+        return datetime(y, mo, d, h, mi, sec)
+    except ValueError:
+        return None
+
+
+def _pairs(text: str) -> dict[str, str]:
+    return dict(line.strip().split("=", 1) for line in (text or "").splitlines() if "=" in line)
+
+
+def camera_report(live_url: str, http=None) -> str:
+    """One line for the person (and for me, reading a screenshot): the model
+    and the memory card, as the camera itself tells."""
+    parts = []
+    info = _pairs(camera_get(live_url, "/cgi-bin/magicBox.cgi?action=getSystemInfo", http) or "")
+    if info.get("deviceType"):
+        parts.append(f"камера {info['deviceType']}")
+    storage = camera_get(live_url, "/cgi-bin/storageDevice.cgi?action=getDeviceAllInfo", http)
+    if storage is None:
+        parts.append("карта памяти: камера не сказала")
+    else:
+        pairs = _pairs(storage)
+        totals = [int(v) for k, v in pairs.items() if k.endswith(".TotalBytes") and v.isdigit()]
+        if totals and sum(totals) > 0:
+            parts.append(f"карта памяти: есть, {sum(totals) / 1e9:.0f} ГБ")
+        else:
+            parts.append("карты памяти в камере нет")
+    return ", ".join(parts)
 
 
 def clock_shift(live_url: str, tz: str, now: Optional[datetime] = None,
@@ -267,7 +310,7 @@ REASONS = {
 def check_archive(
     live_url: str, tz: str, now: Optional[datetime] = None,
     cut: Callable = None, minutes_ago: float = 10, seconds: float = 4,
-    shift_of: Callable = None,
+    shift_of: Callable = None, report_of: Callable = None,
 ) -> tuple[bool, str]:
     """Tries to take a few seconds from the camera's recording of a few minutes
     ago. Returns (worked, sentence for the person)."""
@@ -293,6 +336,12 @@ def check_archive(
         text = note + REASONS.get(why, f"Не получилось ({why}).")
         if len(tried) > 1:
             text += f"\n\nПробовал {len(tried)} вариантов адреса записи, ответы: {', '.join(tried)}."
+        try:
+            about = (report_of or camera_report)(live_url)
+        except Exception:
+            about = ""
+        if about:
+            text += f"\n\nСам о себе камера сообщает: {about}."
         return False, text
     finally:
         shutil.rmtree(out.parent, ignore_errors=True)
