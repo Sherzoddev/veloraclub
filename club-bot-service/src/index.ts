@@ -18,8 +18,10 @@
 // one Supabase client, image/font caches that survive across requests.
 
 import "dotenv/config";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import express from "express";
+import { parseClipMoment } from "./clipTime.js";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Agent, fetch as undiciFetch } from "undici";
 
@@ -97,6 +99,28 @@ async function isClubOpen(sb: SupabaseClient, clubId: string): Promise<boolean> 
   const { data } = await sb.from("cash_shifts").select("id").eq("club_id", clubId).eq("status", "OPEN").limit(1).maybeSingle();
   return Boolean(data);
 }
+
+// "🎬 Мой удар": the button shows only while the camera program in the club is
+// alive (it reports the tables it can cut every few seconds). The keyboard is
+// built without awaiting, so the answer is cached and refreshed per request;
+// clientKeyboardFor finds the club of the request without it being passed on.
+type ClipTable = { id: string; name: string };
+const clipClub = new AsyncLocalStorage<string>();
+const clipTablesCache = new Map<string, { at: number; tables: ClipTable[] }>();
+
+async function clipTables(sb: SupabaseClient, clubId: string, maxAgeMs = 30_000): Promise<ClipTable[]> {
+  const hit = clipTablesCache.get(clubId);
+  if (hit && Date.now() - hit.at < maxAgeMs) return hit.tables;
+  const { data, error } = await sb.rpc("bot_clip_tables", { p_club_id: clubId });
+  const tables: ClipTable[] = !error && Array.isArray(data) ? data : [];
+  clipTablesCache.set(clubId, { at: Date.now(), tables });
+  return tables;
+}
+
+const clipsOn = (clubId?: string) => {
+  const id = clubId ?? clipClub.getStore();
+  return Boolean(id && clipTablesCache.get(id)?.tables.length);
+};
 
 type Lang = "ru" | "uz";
 const L = (lang: Lang, ru: string, uz: string) => (lang === "uz" ? uz : ru);
@@ -247,6 +271,7 @@ const CLIENT_LABELS = {
   me: { ru: "👤 Мои данные", uz: "👤 Ma'lumotlarim" },
   invite: { ru: "🤝 Пригласить друга", uz: "🤝 Do'stni taklif qilish" },
   rival: { ru: "⚪ Найти соперника", uz: "⚪ Raqib topish" },
+  clip: { ru: "🎬 Мой удар", uz: "🎬 Mening zarbam" },
   lang: { ru: "🌐 Язык", uz: "🌐 Til" },
 } as const;
 type ClientAction = keyof typeof CLIENT_LABELS;
@@ -290,7 +315,9 @@ const clientKeyboardFor = (lang: Lang, clubId?: string) => ({
   // showMenu() via setChatMenuButton, which opens the account correctly.
   keyboard: [
     [{ text: clientLabel("tables", lang) }, { text: clientLabel("book", lang) }],
-    [{ text: clientLabel("rival", lang) }],
+    clipsOn(clubId)
+      ? [{ text: clientLabel("rival", lang) }, { text: clientLabel("clip", lang) }]
+      : [{ text: clientLabel("rival", lang) }],
     [{ text: clientLabel("bonus", lang) }, { text: clientLabel("me", lang) }],
     [{ text: clientLabel("invite", lang) }, { text: clientLabel("lang", lang) }],
   ],
@@ -844,6 +871,41 @@ async function clientTables(sb: SupabaseClient, club: Club, token: string, chatI
     `🎮 <b>${L(lang, "Столы клуба", "Klub joylari")}</b> · ${L(lang, "свободно", "bo'sh")} ${freeCount}/${all.length}\n${DIVIDER}\n${text}`,
     { reply_markup: clientKeyboardFor(lang, club.club_id) },
   );
+}
+
+function clipReply(reason: string | undefined, ok: boolean, lang: Lang): string {
+  if (ok) {
+    return L(lang,
+      "🎬 Готовлю ролик — пришлю сюда в течение пары минут.",
+      "🎬 Videoni tayyorlayapman — bir-ikki daqiqada shu yerga yuboraman.");
+  }
+  switch (reason) {
+    case "TOO_FRESH": return L(lang, "Это было только что — подождите минутку и напишите время ещё раз.", "Bu hozirgina bo'ldi — bir daqiqa kutib, vaqtni qayta yozing.");
+    case "TOO_OLD": return L(lang, "Записи хранятся 3 дня — это время уже недоступно.", "Yozuvlar 3 kun saqlanadi — bu vaqt endi mavjud emas.");
+    case "NO_SESSION": return L(lang, "В это время за этим столом не было игры. Проверьте время и стол.", "Bu vaqtda bu stolda o'yin bo'lmagan. Vaqt va stolni tekshiring.");
+    case "BUSY": return L(lang, "Предыдущий ролик ещё готовится — подождите, пожалуйста.", "Oldingi video hali tayyorlanyapti — iltimos, kuting.");
+    case "LIMIT": return L(lang, "Слишком много запросов. Попробуйте через час.", "So'rovlar juda ko'p. Bir soatdan keyin urinib ko'ring.");
+    default: return L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas.");
+  }
+}
+
+async function clientClipStart(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, lang: Lang) {
+  await setPending(sb, club.club_id, tgId, null);
+  const tables = await clipTables(sb, club.club_id, 0);
+  if (!tables.length) {
+    return void send(token, chatId, L(lang,
+      "Эта функция сейчас недоступна — попробуйте позже.",
+      "Bu imkoniyat hozir mavjud emas — keyinroq urinib ko'ring."), { reply_markup: clientKeyboardFor(lang, club.club_id) });
+  }
+  const buttons = tables.map((t) => ({ text: t.name, callback_data: `clip:t:${t.id}` }));
+  const rows: Array<typeof buttons> = [];
+  for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+  await send(token, chatId, L(lang,
+    "🎬 <b>Мой удар</b>\n\nКамера записывает игру. Выберите стол, укажите время — и я пришлю ролик с вашим ударом.",
+    "🎬 <b>Mening zarbam</b>\n\nKamera o'yinni yozib boradi. Stolni tanlang, vaqtni yozing — men zarbangiz videosini yuboraman."), {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: rows },
+  });
 }
 
 async function clientBonus(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, lang: Lang) {
@@ -1895,6 +1957,7 @@ async function handleText(
       case "invite": return void clientReferral(sb, club, token, chatId, tgId, lang);
       case "lang": return void showLangPicker(token, chatId, lang);
       case "rival": return void showMatchBoard(sb, club, token, chatId, tgId, lang);
+      case "clip": return void clientClipStart(sb, club, token, chatId, tgId, lang);
       case "me": {
         const { data } = await sb.rpc("bot_player_card", { p_club_id: club.club_id, p_tg_id: tgId });
         if (!data?.ok) {
@@ -1955,6 +2018,30 @@ async function handleText(
   // relay_admin / relay_client are the older per-booking message buttons
   // (radm:/rcli:) -- they now go through the same chat thread, with the
   // booking as context, so the Mini App shows them too.
+  if (pending?.action === "clip_time") {
+    const moment = parseClipMoment(
+      text, new Date(), todayInZone(club.timezone),
+      (y, mo, d, hh, mm) => zonedTimeToUtc(y, mo, d, hh, mm, club.timezone),
+    );
+    if (!moment) {
+      return void send(token, chatId, L(lang,
+        "Напишите время так: 21:47 (или «вчера 21:47»).",
+        "Vaqtni shunday yozing: 21:47 (yoki «kecha 21:47»)."), {
+        reply_markup: { force_reply: true, input_field_placeholder: "21:47" },
+      });
+    }
+    const { data: made, error: clipError } = await sb.rpc("bot_clip_request", {
+      p_club_id: club.club_id, p_tg_id: tgId,
+      p_resource_id: String(pending.payload?.resource_id ?? ""), p_moment: moment.toISOString(),
+    });
+    if (clipError) console.error("clip request", clipError);
+    if (made?.ok) await setPending(sb, club.club_id, tgId, null);
+    await send(token, chatId, clipError ? L(lang, "Не получилось — попробуйте ещё раз.", "Bo'lmadi — yana urinib ko'ring.") : clipReply(made?.reason, Boolean(made?.ok), lang), {
+      reply_markup: clientKeyboardFor(lang, club.club_id),
+    });
+    return;
+  }
+
   if (pending?.action === "poll_idea") {
     await setPending(sb, club.club_id, tgId, null);
     const { data: saved, error: ideaError } = await sb.rpc("bot_poll_idea", {
@@ -2099,6 +2186,8 @@ app.post("/club-bot", async (req, res) => {
   const c = club as Club;
   const token = c.bot_token;
   const update: Record<string, any> = req.body ?? {};
+  clipClub.enterWith(c.club_id);
+  await clipTables(sb, c.club_id);
 
   try {
     const msg = update.message ?? update.edited_message;
@@ -2246,6 +2335,28 @@ app.post("/club-bot", async (req, res) => {
           "✍️ Напишите, какие функции вы хотели бы видеть в боте и клубе — своими словами, хоть парой слов.",
           "✍️ Bot va klubda qanday imkoniyatlarni ko'rishni xohlaysiz — o'z so'zlaringiz bilan, hatto ikki so'z bilan ham yozing."), {
           reply_markup: { force_reply: true, input_field_placeholder: L(lang, "Ваша идея…", "G'oyangiz…") },
+        });
+        return res.send("ok");
+      }
+
+      if (data.startsWith("clip:")) {
+        if (data === "clip:x") {
+          await setPending(sb, c.club_id, tgId, null);
+          return res.send("ok");
+        }
+        const picked = (await clipTables(sb, c.club_id)).find((t) => t.id === data.slice(7));
+        if (!picked) {
+          await send(token, chatId, L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas."), {
+            reply_markup: clientKeyboardFor(lang, c.club_id),
+          });
+          return res.send("ok");
+        }
+        await setPending(sb, c.club_id, tgId, "clip_time", { resource_id: picked.id, table: picked.name });
+        await send(token, chatId, L(lang,
+          `🎬 <b>${esc(picked.name)}</b>\n\nНапишите время удара, например <b>21:47</b>.\nЕсли это было вчера — напишите «вчера 21:47». Записи хранятся 3 дня.`,
+          `🎬 <b>${esc(picked.name)}</b>\n\nZarba vaqtini yozing, masalan <b>21:47</b>.\nKecha bo'lgan bo'lsa — «kecha 21:47» deb yozing. Yozuvlar 3 kun saqlanadi.`), {
+          parse_mode: "HTML",
+          reply_markup: { force_reply: true, input_field_placeholder: L(lang, "21:47", "21:47") },
         });
         return res.send("ok");
       }
