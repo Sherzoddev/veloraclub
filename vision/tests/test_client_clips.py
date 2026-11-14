@@ -1,13 +1,14 @@
 import subprocess
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 import requests
 
-from velora_vision.clips.archive import (check_archive, clip_window, cut_clip, cut_command,
-                                         cut_first_working, ffmpeg_exe, playback_url,
+from velora_vision.clips.archive import (camera_clock, check_archive, clip_window, clock_shift,
+                                         cut_clip, cut_command, cut_first_working,
+                                         describe_shift, ffmpeg_exe, playback_url,
                                          playback_urls, supports_playback)
 from velora_vision.clips.client_clips import (ClipRequest, ClipRequestWorker, ClipsClient,
                                               ClipsError, table_sources)
@@ -108,7 +109,8 @@ def test_ffmpegs_words_become_a_reason(tmp_path, words, reason):
 
 
 def test_forbidden_tells_about_the_recorder():
-    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN")
+    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN",
+                             shift_of=lambda *a: timedelta(0))
     assert not ok and "регистратор" in text
 
 
@@ -199,7 +201,8 @@ class FakeClient:
 
 
 def make_worker(tmp_path, client, cut):
-    return ClipRequestWorker(client, {"Стол 1": LIVE}, tmp_path, threading.Event(), cut=cut)
+    return ClipRequestWorker(client, {"Стол 1": LIVE}, tmp_path, threading.Event(), cut=cut,
+                             shift_of=lambda *a: timedelta(0))
 
 
 def ok_cut(url, seconds, out):
@@ -266,12 +269,14 @@ def test_check_archive_reports_a_clip_that_works(tmp_path):
         out.write_bytes(b"x" * 20000)
         return None
 
-    ok, text = check_archive(LIVE, "Asia/Tashkent", now=T.replace(minute=47, second=0), cut=cut)
+    ok, text = check_archive(LIVE, "Asia/Tashkent", now=T.replace(minute=47, second=0), cut=cut,
+                             shift_of=lambda *a: timedelta(0))
     assert ok and "читается" in text
 
 
 def test_check_archive_explains_a_camera_that_gives_nothing():
-    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "NO_RECORDING")
+    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "NO_RECORDING",
+                             shift_of=lambda *a: timedelta(0))
     assert not ok and "карта памяти" in text
 
 
@@ -311,5 +316,73 @@ def test_every_spelling_refused_reports_the_first_reason(tmp_path):
 
 
 def test_check_archive_lists_what_every_spelling_answered():
-    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN")
+    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN",
+                             shift_of=lambda *a: timedelta(0))
     assert not ok and "Пробовал 3 вариантов" in text and "SmartPSS" in text
+
+
+class ClockHttp:
+    def __init__(self, text="result=2026-11-14 15:59:12\r\n", status=200, error=None):
+        self.text, self.status, self.error, self.urls = text, status, error, []
+
+    def get(self, url, **kw):
+        self.urls.append(url)
+        if self.error:
+            raise self.error
+        r = Resp(self.status, None)
+        r.text = self.text
+        return r
+
+
+def test_camera_clock_reads_the_time_the_camera_shows():
+    http = ClockHttp()
+    assert camera_clock(LIVE, http) == datetime(2026, 11, 14, 15, 59, 12)
+    assert http.urls == ["http://192.168.1.64/cgi-bin/global.cgi?action=getCurrentTime"]
+
+
+def test_camera_clock_gives_none_when_the_camera_does_not_answer():
+    assert camera_clock(LIVE, ClockHttp(error=requests.ConnectionError())) is None
+    assert camera_clock(LIVE, ClockHttp(status=401)) is None
+    assert camera_clock(LIVE, ClockHttp(text="oops")) is None
+
+
+def test_clock_shift_is_zero_when_the_clocks_agree():
+    now = datetime(2026, 11, 14, 10, 59, 30, tzinfo=timezone.utc)  # 15:59:30 in Tashkent
+    assert clock_shift(LIVE, "Asia/Tashkent", now, ClockHttp()) == timedelta(0)
+
+
+def test_a_camera_left_on_utc_is_five_hours_behind():
+    now = datetime(2026, 11, 14, 10, 59, 30, tzinfo=timezone.utc)
+    http = ClockHttp("result=2026-11-14 10:59:12\r\n")
+    shift = clock_shift(LIVE, "Asia/Tashkent", now, http)
+    assert shift == timedelta(hours=-5, seconds=-18)
+    assert describe_shift(shift) == "5 ч позади"
+
+
+def test_the_playback_time_follows_the_cameras_clock():
+    # 21:46:53 in the club; a camera 5 hours behind knows that moment as 16:46:53
+    url = playback_url(LIVE, *clip_window(T, 12, 18), tz="Asia/Tashkent", shift=timedelta(hours=-5))
+    assert "starttime=2026_11_14_16_46_53&endtime=2026_11_14_16_47_23" in url
+    # and the club's own time is untouched without a shift
+    plain = playback_url(LIVE, *clip_window(T, 12, 18), tz="Asia/Tashkent")
+    assert "starttime=2026_11_14_21_46_53&endtime=2026_11_14_21_47_23" in plain
+
+
+def test_the_worker_asks_for_the_cameras_time_not_the_clubs(tmp_path):
+    seen = {}
+
+    def cut(url, seconds, out):
+        seen["url"] = url
+        out.write_bytes(b"x" * 5000)
+        return None
+
+    w = ClipRequestWorker(FakeClient(), {"Стол 1": LIVE}, tmp_path, threading.Event(), cut=cut,
+                          shift_of=lambda *a: timedelta(hours=-5))
+    assert w.handle(REQ, "Asia/Tashkent")
+    assert "starttime=2026_11_14_16_46_53" in seen["url"]
+
+
+def test_check_archive_tells_about_a_wrong_camera_clock():
+    ok, text = check_archive(LIVE, "Asia/Tashkent", cut=lambda *a: "FORBIDDEN",
+                             shift_of=lambda *a: timedelta(hours=-5))
+    assert not ok and "Часы камеры не совпадают" in text and "5 ч позади" in text

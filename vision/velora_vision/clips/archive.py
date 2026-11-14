@@ -17,7 +17,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import parse_qs, urlsplit, urlunsplit
+from urllib.parse import parse_qs, unquote, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 log = logging.getLogger("velora_vision.clips")
@@ -51,7 +51,8 @@ def supports_playback(live_url: str) -> bool:
     return parts.scheme in ("rtsp", "rtsps") and parts.path.rstrip("/").lower().endswith("/cam/realmonitor")
 
 
-def playback_urls(live_url: str, start: datetime, end: datetime, tz: str) -> list[str]:
+def playback_urls(live_url: str, start: datetime, end: datetime, tz: str,
+                  shift: timedelta = timedelta(0)) -> list[str]:
     """The playback addresses of the same camera for [start, end], the usual one
     first. Firmwares differ a little (some want no `subtype`, some keep the
     recording of the light stream), so a few spellings are tried in turn.
@@ -69,8 +70,8 @@ def playback_urls(live_url: str, start: datetime, end: datetime, tz: str) -> lis
         channel = "1"
     live_subtype = (query.get("subtype") or ["0"])[0]
     zone = ZoneInfo(tz)
-    first = start.astimezone(zone).strftime(STAMP)
-    last = end.astimezone(zone).strftime(STAMP)
+    first = (start.astimezone(zone).replace(tzinfo=None) + shift).strftime(STAMP)
+    last = (end.astimezone(zone).replace(tzinfo=None) + shift).strftime(STAMP)
     path = parts.path.rstrip("/")
     path = path[: -len("realmonitor")] + "playback"
     stamps = f"starttime={first}&endtime={last}"
@@ -80,10 +81,69 @@ def playback_urls(live_url: str, start: datetime, end: datetime, tz: str) -> lis
     return [urlunsplit((parts.scheme, parts.netloc, path, q, "")) for q in queries]
 
 
-def playback_url(live_url: str, start: datetime, end: datetime, tz: str) -> Optional[str]:
+def playback_url(live_url: str, start: datetime, end: datetime, tz: str,
+                 shift: timedelta = timedelta(0)) -> Optional[str]:
     """The usual playback address of the camera, or None."""
-    urls = playback_urls(live_url, start, end, tz)
+    urls = playback_urls(live_url, start, end, tz, shift)
     return urls[0] if urls else None
+
+
+# -- the camera's own clock -----------------------------------------------
+# The recording is looked up by the camera's time. A camera left on UTC (or
+# with a wrong date) would be asked for a moment that, for it, has not come yet
+# and refuses (403), or would hand out the wrong moment.
+_CLOCK = re.compile(r"result=(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})")
+
+
+def camera_clock(live_url: str, http=None, timeout: float = 6) -> Optional[datetime]:
+    """The time the camera shows (naive), asked over its web interface, or None."""
+    import requests
+    from requests.auth import HTTPBasicAuth, HTTPDigestAuth
+
+    http = http or requests
+    try:
+        parts = urlsplit(live_url)
+        host = parts.hostname
+        user, password = unquote(parts.username or ""), unquote(parts.password or "")
+    except ValueError:
+        return None
+    if not host:
+        return None
+    url = f"http://{host}/cgi-bin/global.cgi?action=getCurrentTime"
+    for auth in (HTTPDigestAuth(user, password), HTTPBasicAuth(user, password)):
+        try:
+            resp = http.get(url, auth=auth, timeout=timeout)
+        except requests.RequestException:
+            return None
+        m = _CLOCK.search(resp.text or "") if resp.status_code == 200 else None
+        if m:
+            y, mo, d, h, mi, sec = map(int, m.groups())
+            try:
+                return datetime(y, mo, d, h, mi, sec)
+            except ValueError:
+                return None
+    return None
+
+
+def clock_shift(live_url: str, tz: str, now: Optional[datetime] = None,
+                http=None) -> Optional[timedelta]:
+    """How far the camera's clock is ahead of the club's time (negative: behind).
+    Zero when they agree within half a minute; None if the camera's time could
+    not be read."""
+    shown = camera_clock(live_url, http)
+    if shown is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    here = now.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
+    shift = shown - here
+    return timedelta(0) if abs(shift) < timedelta(seconds=30) else timedelta(seconds=round(shift.total_seconds()))
+
+
+def describe_shift(shift: timedelta) -> str:
+    total = int(abs(shift.total_seconds()) // 60)
+    hours, minutes = divmod(total, 60)
+    span = (f"{hours} ч " if hours else "") + (f"{minutes} мин" if minutes or not hours else "")
+    return f"{span.strip()} {'впереди' if shift > timedelta(0) else 'позади'}"
 
 
 def cut_first_working(urls: list[str], seconds: float, out: Path,
@@ -207,6 +267,7 @@ REASONS = {
 def check_archive(
     live_url: str, tz: str, now: Optional[datetime] = None,
     cut: Callable = None, minutes_ago: float = 10, seconds: float = 4,
+    shift_of: Callable = None,
 ) -> tuple[bool, str]:
     """Tries to take a few seconds from the camera's recording of a few minutes
     ago. Returns (worked, sentence for the person)."""
@@ -214,15 +275,22 @@ def check_archive(
         return False, ("Адрес этой камеры не похож на Dahua: запись по времени для неё не "
                        "поддерживается.")
     now = now or datetime.now(timezone.utc)
+    shift = (shift_of or clock_shift)(live_url, tz, now)
+    note = ""
+    if shift is None:
+        note = "Время камеры узнать не удалось (проверка идёт по времени компьютера). "
+    elif shift:
+        note = (f"Часы камеры не совпадают с часами клуба: камера {describe_shift(shift)}. "
+                "Программа это учтёт сама, но лучше выставить в камере верное время и пояс. ")
     start = now - timedelta(minutes=minutes_ago)
-    urls = playback_urls(live_url, start, start + timedelta(seconds=seconds), tz)
+    urls = playback_urls(live_url, start, start + timedelta(seconds=seconds), tz, shift or timedelta(0))
     out = Path(tempfile.mkdtemp(prefix="vv_check_")) / "check.mp4"
     try:
         why, tried = cut_first_working(urls, seconds, out, cut)
         if why is None:
             kb = out.stat().st_size // 1024
-            return True, f"✓ Запись камеры читается: взято {seconds:g} с видео ({kb} КБ)."
-        text = REASONS.get(why, f"Не получилось ({why}).")
+            return True, note + f"✓ Запись камеры читается: взято {seconds:g} с видео ({kb} КБ)."
+        text = note + REASONS.get(why, f"Не получилось ({why}).")
         if len(tried) > 1:
             text += f"\n\nПробовал {len(tried)} вариантов адреса записи, ответы: {', '.join(tried)}."
         return False, text

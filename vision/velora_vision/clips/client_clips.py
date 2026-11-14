@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
 import requests
 
-from .archive import clip_window, cut_clip, cut_first_working, playback_urls, supports_playback
+from .archive import (clip_window, clock_shift, cut_clip, cut_first_working, describe_shift,
+                      playback_urls, supports_playback)
 
 log = logging.getLogger("velora_vision.clips")
 
@@ -111,7 +113,7 @@ def table_sources(cameras) -> dict[str, str]:
 class ClipRequestWorker(threading.Thread):
     def __init__(self, client: ClipsClient, sources: dict[str, str], tmp_dir: Path,
                  stop: threading.Event, cut: Callable = cut_clip,
-                 poll_every: float = POLL_EVERY):
+                 poll_every: float = POLL_EVERY, shift_of: Callable = clock_shift):
         super().__init__(name="client-clips", daemon=True)
         self.client = client
         self.sources = sources
@@ -119,6 +121,8 @@ class ClipRequestWorker(threading.Thread):
         self._stop_event = stop
         self.cut = cut
         self.poll_every = poll_every
+        self.shift_of = shift_of
+        self._shifts: dict[str, tuple[float, timedelta]] = {}  # camera -> (asked at, shift)
         self.sent = 0
         self.failed = 0
         self._warned = False
@@ -146,10 +150,28 @@ class ClipRequestWorker(threading.Thread):
             self.handle(req, tz)
         return len(requests_)
 
+    def _shift(self, source: str, tz: str) -> timedelta:
+        """The camera's clock against the club's, asked at most every 10 minutes."""
+        hit = self._shifts.get(source)
+        if hit and time.time() - hit[0] < 600:
+            return hit[1]
+        try:
+            shift = self.shift_of(source, tz)
+        except Exception:  # never let a clock question stop a clip
+            shift = None
+        if shift is None:
+            return hit[1] if hit else timedelta(0)
+        if shift and (not hit or hit[1] != shift):
+            log.warning("Часы камеры не совпадают с часами клуба: камера %s. Это учтено.",
+                        describe_shift(shift))
+        self._shifts[source] = (time.time(), shift)
+        return shift
+
     def handle(self, req: ClipRequest, tz: str) -> bool:
         source = self.sources.get(req.table)
         start, end = clip_window(req.moment, BEFORE, AFTER)
-        urls = playback_urls(source, start, end, tz) if source else []
+        shift = self._shift(source, tz) if source else timedelta(0)
+        urls = playback_urls(source, start, end, tz, shift) if source else []
         if not urls:
             self.failed += 1
             self.client.fail(req.id, "NO_CAMERA")
