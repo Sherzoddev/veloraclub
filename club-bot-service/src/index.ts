@@ -873,6 +873,16 @@ async function clientTables(sb: SupabaseClient, club: Club, token: string, chatI
   );
 }
 
+// "Сегодня" / "Вчера" / "Позавчера 12.11" — the day buttons of "🎬 Мой удар".
+function clipDayLabel(offset: number, timeZone: string, lang: Lang): string {
+  if (offset === 0) return L(lang, "Сегодня", "Bugun");
+  if (offset === 1) return L(lang, "Вчера", "Kecha");
+  const t = todayInZone(timeZone);
+  const d = new Date(Date.UTC(t.y, t.mo - 1, t.d - offset));
+  const date = `${String(d.getUTCDate()).padStart(2, "0")}.${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return `${date}`;
+}
+
 function clipReply(reason: string | undefined, ok: boolean, lang: Lang): string {
   if (ok) {
     return L(lang,
@@ -2022,11 +2032,12 @@ async function handleText(
     const moment = parseClipMoment(
       text, new Date(), todayInZone(club.timezone),
       (y, mo, d, hh, mm) => zonedTimeToUtc(y, mo, d, hh, mm, club.timezone),
+      typeof pending.payload?.day === "number" ? pending.payload.day : undefined,
     );
     if (!moment) {
       return void send(token, chatId, L(lang,
-        "Напишите время так: 21:47 (или «вчера 21:47»).",
-        "Vaqtni shunday yozing: 21:47 (yoki «kecha 21:47»)."), {
+        "Напишите время так: 21:47.",
+        "Vaqtni shunday yozing: 21:47."), {
         reply_markup: { force_reply: true, input_field_placeholder: "21:47" },
       });
     }
@@ -2344,6 +2355,25 @@ app.post("/club-bot", async (req, res) => {
           await setPending(sb, c.club_id, tgId, null);
           return res.send("ok");
         }
+        if (data.startsWith("clip:d:")) {
+          const [, , off, tableId] = data.split(":");
+          const day = Number(off);
+          const table = (await clipTables(sb, c.club_id)).find((t) => t.id === tableId);
+          if (!table || !(day >= 0 && day <= 2)) {
+            await send(token, chatId, L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas."), {
+              reply_markup: clientKeyboardFor(lang, c.club_id),
+            });
+            return res.send("ok");
+          }
+          await setPending(sb, c.club_id, tgId, "clip_time", { resource_id: table.id, table: table.name, day });
+          await send(token, chatId, L(lang,
+            `🎬 <b>${esc(table.name)}</b> · ${clipDayLabel(day, c.timezone, lang)}\n\nНапишите время удара, например <b>21:47</b>.`,
+            `🎬 <b>${esc(table.name)}</b> · ${clipDayLabel(day, c.timezone, lang)}\n\nZarba vaqtini yozing, masalan <b>21:47</b>.`), {
+            parse_mode: "HTML",
+            reply_markup: { force_reply: true, input_field_placeholder: "21:47" },
+          });
+          return res.send("ok");
+        }
         const picked = (await clipTables(sb, c.club_id)).find((t) => t.id === data.slice(7));
         if (!picked) {
           await send(token, chatId, L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas."), {
@@ -2351,12 +2381,16 @@ app.post("/club-bot", async (req, res) => {
           });
           return res.send("ok");
         }
-        await setPending(sb, c.club_id, tgId, "clip_time", { resource_id: picked.id, table: picked.name });
         await send(token, chatId, L(lang,
-          `🎬 <b>${esc(picked.name)}</b>\n\nНапишите время удара, например <b>21:47</b>.\nЕсли это было вчера — напишите «вчера 21:47». Записи хранятся 3 дня.`,
-          `🎬 <b>${esc(picked.name)}</b>\n\nZarba vaqtini yozing, masalan <b>21:47</b>.\nKecha bo'lgan bo'lsa — «kecha 21:47» deb yozing. Yozuvlar 3 kun saqlanadi.`), {
+          `🎬 <b>${esc(picked.name)}</b>\n\nКогда это было? Записи хранятся 3 дня.`,
+          `🎬 <b>${esc(picked.name)}</b>\n\nBu qachon bo'lgan? Yozuvlar 3 kun saqlanadi.`), {
           parse_mode: "HTML",
-          reply_markup: { force_reply: true, input_field_placeholder: L(lang, "21:47", "21:47") },
+          reply_markup: { inline_keyboard: [
+            [0, 1, 2].map((off) => ({
+              text: clipDayLabel(off, c.timezone, lang),
+              callback_data: `clip:d:${off}:${picked.id}`,
+            })),
+          ] },
         });
         return res.send("ok");
       }
