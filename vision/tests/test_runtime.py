@@ -90,3 +90,21 @@ def test_check_camera_uses_the_clubs_time_zone(monkeypatch):
                         lambda url, tz: seen.update(url=url, tz=tz) or (True, "ok"))
     assert c.check_camera(LIVE) == (True, "ok")
     assert seen["tz"] == "Asia/Tashkent"
+
+
+def test_a_table_that_is_not_in_velora_club_stops_the_start_and_names_the_real_ones():
+    s = Settings(bot_token=TOKEN, cameras=[CameraSettings("c1", "A", LIVE, "1")])
+    c = make(s, snapshot("Стол №1", "Стол №2"))
+    c.start()
+    assert wait_for(c, {RUNNING, FAILED}) == FAILED
+    assert "Стол №1, Стол №2" in c.message
+
+
+def test_only_known_tables_go_to_the_worker():
+    s = Settings(bot_token=TOKEN, cameras=[CameraSettings("c1", "A", LIVE, "Стол 1"),
+                                           CameraSettings("c2", "B", LIVE.replace("2:554", "3:554"), "Стол 9")])
+    c = make(s, snapshot("Стол 1"))
+    c.start()
+    assert wait_for(c, {RUNNING, FAILED}) == RUNNING
+    assert list(c.worker.sources) == ["Стол 1"]
+    c.stop()

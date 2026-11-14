@@ -17,7 +17,7 @@ from typing import Callable, Optional
 
 import requests
 
-from .archive import clip_window, cut_clip, playback_url, supports_playback
+from .archive import clip_window, cut_clip, cut_first_working, playback_urls, supports_playback
 
 log = logging.getLogger("velora_vision.clips")
 
@@ -149,15 +149,15 @@ class ClipRequestWorker(threading.Thread):
     def handle(self, req: ClipRequest, tz: str) -> bool:
         source = self.sources.get(req.table)
         start, end = clip_window(req.moment, BEFORE, AFTER)
-        url = playback_url(source, start, end, tz) if source else None
-        if url is None:
+        urls = playback_urls(source, start, end, tz) if source else []
+        if not urls:
             self.failed += 1
             self.client.fail(req.id, "NO_CAMERA")
             return False
         self.tmp_dir.mkdir(parents=True, exist_ok=True)
         out = self.tmp_dir / f"clip_ask_{req.id[:8]}.mp4"
         try:
-            why = self.cut(url, BEFORE + AFTER, out)
+            why, _ = cut_first_working(urls, BEFORE + AFTER, out, self.cut)
             if why is not None:
                 self.failed += 1
                 log.warning("Ролик по заявке не получился (%s, %s)", req.table, why)

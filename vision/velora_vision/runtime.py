@@ -103,9 +103,14 @@ class Controller:
             if not sources:
                 return self._fail("Нет камер Dahua с выбранным столом (вкладка «2. Камеры»).")
             known = {r.name.strip().casefold() for r in snap.resources}
-            for table in sources:
+            for table in list(sources):
                 if table.strip().casefold() not in known:
                     log.warning("Стол «%s»: такого стола нет в программе Velora Club", table)
+                    del sources[table]
+            if not sources:
+                names = ", ".join(r.name for r in snap.resources) or "—"
+                return self._fail("Выбранные у камер столы не найдены в Velora Club. Выберите "
+                                  f"стол из списка (вкладка «2. Камеры»). Столы клуба: {names}.")
             self.worker = self.worker_factory(
                 ClipsClient(settings.supabase_url, settings.bot_token), sources, self.tmp_dir, stop)
             self.worker.start()

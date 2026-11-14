@@ -91,7 +91,10 @@ class CameraDialog(tk.Toplevel):
 
         ttk.Label(self, text="Какой стол снимает эта камера").pack(anchor="w", padx=16, pady=(12, 0))
         self.table = tk.StringVar(value=camera.table if camera else "")
+        # With the club's list a table can only be picked, so a mistyped name
+        # ("1" instead of "Стол №1") is impossible.
         ttk.Combobox(self, textvariable=self.table, values=list(tables or []),
+                     state="readonly" if tables else "normal",
                      width=38).pack(anchor="w", padx=16, pady=4)
         hint(self, "Название стола как в программе Velora Club. Список подтягивается после "
                    "проверки токена на вкладке «1. Бот».", 500).pack(anchor="w", padx=16)
