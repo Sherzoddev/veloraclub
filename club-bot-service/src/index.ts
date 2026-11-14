@@ -290,7 +290,7 @@ const adminKeyboard = {
     [{ text: ADMIN.hall }, { text: ADMIN.bookings }],
     [{ text: ADMIN.top }, { text: ADMIN.stats }],
     [{ text: ADMIN.broadcast }, { text: ADMIN.gift }],
-    [{ text: ADMIN.ideas }],
+    [{ text: ADMIN.ideas }, { text: clientLabel("clip", "ru") }],
   ],
   resize_keyboard: true,
 };
@@ -920,13 +920,13 @@ function clipReply(reason: string | undefined, ok: boolean, lang: Lang): string 
   }
 }
 
-async function clientClipStart(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, lang: Lang) {
+async function clientClipStart(sb: SupabaseClient, club: Club, token: string, chatId: number, tgId: number, role: string, lang: Lang) {
   await setPending(sb, club.club_id, tgId, null);
   const tables = await clipTables(sb, club.club_id, 0);
   if (!tables.length) {
     return void send(token, chatId, L(lang,
       "🎬 <b>Мои удары</b>\n\nСкоро здесь можно будет получить видео своего удара из записи камеры. Сейчас камеры ещё подключаются — загляните позже 🙌",
-      "🎬 <b>Mening zarbalarim</b>\n\nTez orada kamera yozuvidan o'z zarbangiz videosini olish mumkin bo'ladi. Hozir kameralar ulanmoqda — keyinroq kiring 🙌"), { reply_markup: clientKeyboardFor(lang, club.club_id) });
+      "🎬 <b>Mening zarbalarim</b>\n\nTez orada kamera yozuvidan o'z zarbangiz videosini olish mumkin bo'ladi. Hozir kameralar ulanmoqda — keyinroq kiring 🙌"), { reply_markup: menuFor(role, lang) });
   }
   const buttons = tables.map((t) => ({ text: t.name, callback_data: `clip:t:${t.id}` }));
   const rows: Array<typeof buttons> = [];
@@ -1988,7 +1988,7 @@ async function handleText(
       case "invite": return void clientReferral(sb, club, token, chatId, tgId, lang);
       case "lang": return void showLangPicker(token, chatId, lang);
       case "rival": return void showMatchBoard(sb, club, token, chatId, tgId, lang);
-      case "clip": return void clientClipStart(sb, club, token, chatId, tgId, lang);
+      case "clip": return void clientClipStart(sb, club, token, chatId, tgId, role, lang);
       case "me": {
         const { data } = await sb.rpc("bot_player_card", { p_club_id: club.club_id, p_tg_id: tgId });
         if (!data?.ok) {
@@ -2069,7 +2069,7 @@ async function handleText(
     if (clipError) console.error("clip request", clipError);
     if (made?.ok) await setPending(sb, club.club_id, tgId, null);
     await send(token, chatId, clipError ? L(lang, "Не получилось — попробуйте ещё раз.", "Bo'lmadi — yana urinib ko'ring.") : clipReply(made?.reason, Boolean(made?.ok), lang), {
-      reply_markup: clientKeyboardFor(lang, club.club_id),
+      reply_markup: menuFor(role, lang),
     });
     return;
   }
@@ -2381,7 +2381,7 @@ app.post("/club-bot", async (req, res) => {
           const t0 = todayInZone(c.timezone);
           if (!table) {
             await send(token, chatId, L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas."), {
-              reply_markup: clientKeyboardFor(lang, c.club_id),
+              reply_markup: menuFor(userRole, lang),
             });
             return res.send("ok");
           }
@@ -2413,7 +2413,7 @@ app.post("/club-bot", async (req, res) => {
         const picked = (await clipTables(sb, c.club_id)).find((t) => t.id === data.slice(7));
         if (!picked) {
           await send(token, chatId, L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas."), {
-            reply_markup: clientKeyboardFor(lang, c.club_id),
+            reply_markup: menuFor(userRole, lang),
           });
           return res.send("ok");
         }
