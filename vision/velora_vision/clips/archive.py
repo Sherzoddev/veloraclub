@@ -213,6 +213,16 @@ def _no_window() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
+# A camera's light stream is often squeezed into an almost square picture (the
+# main stream, e.g. 3200x1800, is wide). Whatever is squarer than this is
+# stretched back to 16:9, then the clip is made at most 720 lines high.
+SQUARE_BELOW = 1.6
+VIDEO_FILTER = (
+    f"scale='if(lt(iw/ih,{SQUARE_BELOW}),trunc(ih*16/9/2)*2,iw)':ih,setsar=1,"
+    "scale=-2:'min(720,ih)',format=yuv420p"
+)
+
+
 def cut_command(exe: str, source: str, seconds: float, out: Path) -> list[str]:
     """ffmpeg reads the playback stream and writes a small H.264 file that
     plays inside Telegram (the camera may send H.265)."""
@@ -221,7 +231,7 @@ def cut_command(exe: str, source: str, seconds: float, out: Path) -> list[str]:
         cmd += ["-rtsp_transport", "tcp"]
     cmd += [
         "-i", source, "-t", f"{seconds:g}", "-an",
-        "-vf", "scale=-2:'min(720,ih)',format=yuv420p",
+        "-vf", VIDEO_FILTER,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "27",
         "-movflags", "+faststart", str(out),
     ]

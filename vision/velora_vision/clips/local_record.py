@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from .archive import MAX_BYTES, _hide_password, ffmpeg_exe
+from .archive import MAX_BYTES, VIDEO_FILTER, _hide_password, ffmpeg_exe
 
 log = logging.getLogger("velora_vision.record")
 
@@ -212,7 +212,7 @@ def cut_local(
         listing.write_text(concat_list([f for _, f in pieces]), encoding="utf-8")
         cmd = [exe, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
                "-i", str(listing), "-ss", f"{offset:.2f}", "-t", f"{before + after:g}", "-an",
-               "-vf", "scale=-2:'min(720,ih)',format=yuv420p",
+               "-vf", VIDEO_FILTER,
                "-c:v", "libx264", "-preset", "veryfast", "-crf", "27",
                "-movflags", "+faststart", str(out)]
         try:

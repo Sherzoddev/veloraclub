@@ -864,46 +864,6 @@ async function clientTables(sb: SupabaseClient, club: Club, token: string, chatI
   );
 }
 
-// The calendar of "🎬 Мой удар": any past day (today included) can be picked,
-// days to come are greyed out. Month arrows page through the months.
-const MONTH_NAMES_UZ = [
-  "Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun",
-  "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr",
-];
-
-function clipCalendar(y: number, mo: number, tableId: string, today: { y: number; mo: number; d: number }, lang: Lang) {
-  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-  const firstWeekday = (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7;
-  const blank = { text: " ", callback_data: "noop" };
-  const names = lang === "uz" ? MONTH_NAMES_UZ : MONTH_NAMES;
-  const weekdays = lang === "uz" ? ["Du", "Se", "Ch", "Pa", "Ju", "Sh", "Ya"] : ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-  const rows: Array<Array<{ text: string; callback_data: string }>> = [
-    [{ text: `${names[mo - 1]} ${y}`, callback_data: "noop" }],
-    weekdays.map((d) => ({ text: d, callback_data: "noop" })),
-  ];
-  const todayKey = today.y * 10000 + today.mo * 100 + today.d;
-  let week: Array<{ text: string; callback_data: string }> = new Array(firstWeekday).fill(blank);
-  for (let d = 1; d <= daysInMonth; d++) {
-    const key = y * 10000 + mo * 100 + d;
-    week.push(key > todayKey
-      ? { text: "·", callback_data: "noop" }
-      : { text: key === todayKey ? `[${d}]` : String(d), callback_data: `clip:d:${y}-${pad(mo)}-${pad(d)}:${tableId}` });
-    if (week.length === 7) {
-      rows.push(week);
-      week = [];
-    }
-  }
-  if (week.length) rows.push([...week, ...new Array(7 - week.length).fill(blank)]);
-  const prev = mo === 1 ? { y: y - 1, mo: 12 } : { y, mo: mo - 1 };
-  const next = mo === 12 ? { y: y + 1, mo: 1 } : { y, mo: mo + 1 };
-  const canGoNext = next.y * 100 + next.mo <= today.y * 100 + today.mo;
-  rows.push([
-    { text: "◂", callback_data: `clip:m:${prev.y}-${pad(prev.mo)}:${tableId}` },
-    canGoNext ? { text: "▸", callback_data: `clip:m:${next.y}-${pad(next.mo)}:${tableId}` } : blank,
-  ]);
-  return { inline_keyboard: rows };
-}
-
 function clipReply(reason: string | undefined, ok: boolean, lang: Lang): string {
   if (ok) {
     return L(lang,
@@ -912,7 +872,7 @@ function clipReply(reason: string | undefined, ok: boolean, lang: Lang): string 
   }
   switch (reason) {
     case "TOO_FRESH": return L(lang, "Это было только что — подождите минутку и напишите время ещё раз.", "Bu hozirgina bo'ldi — bir daqiqa kutib, vaqtni qayta yozing.");
-    case "TOO_OLD": return L(lang, "Записи за такой давний день уже нет.", "Bunday eski kunning yozuvi endi yo'q.");
+    case "TOO_OLD": return L(lang, "Запись хранится 2 дня — это время уже недоступно.", "Yozuv 2 kun saqlanadi — bu vaqt endi mavjud emas.");
     case "BUSY": return L(lang, "Предыдущий ролик ещё готовится — подождите, пожалуйста.", "Oldingi video hali tayyorlanyapti — iltimos, kuting.");
     case "LIMIT": return L(lang, "Слишком много запросов. Попробуйте через час.", "So'rovlar juda ko'p. Bir soatdan keyin urinib ko'ring.");
     default: return L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas.");
@@ -2374,7 +2334,7 @@ app.post("/club-bot", async (req, res) => {
           await setPending(sb, c.club_id, tgId, null);
           return res.send("ok");
         }
-        if (data.startsWith("clip:m:") || data.startsWith("clip:d:")) {
+        if (data.startsWith("clip:d:")) {
           const [, kind, when, tableId] = data.split(":");
           const table = (await clipTables(sb, c.club_id)).find((t) => t.id === tableId);
           const t0 = todayInZone(c.timezone);
@@ -2384,19 +2344,10 @@ app.post("/club-bot", async (req, res) => {
             });
             return res.send("ok");
           }
-          if (kind === "m") {
-            const [yy, mm] = when.split("-").map(Number);
-            if (yy && mm >= 1 && mm <= 12 && cb.message?.message_id) {
-              await tg(token, "editMessageReplyMarkup", {
-                chat_id: chatId, message_id: cb.message.message_id,
-                reply_markup: clipCalendar(yy, mm, table.id, t0, lang),
-              }).catch(() => undefined);
-            }
-            return res.send("ok");
-          }
           const [yy, mm, dd] = when.split("-").map(Number);
           const chosen = Date.UTC(yy, mm - 1, dd);
-          if (!(yy && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) || chosen > Date.UTC(t0.y, t0.mo - 1, t0.d)) {
+          const today = Date.UTC(t0.y, t0.mo - 1, t0.d);
+          if (!(yy && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) || chosen > today || chosen < today - 86_400_000) {
             return res.send("ok");
           }
           const label = `${pad(dd)}.${pad(mm)}.${yy}`;
@@ -2418,10 +2369,14 @@ app.post("/club-bot", async (req, res) => {
         }
         const t0 = todayInZone(c.timezone);
         await send(token, chatId, L(lang,
-          `🎬 <b>${esc(picked.name)}</b>\n\nВыберите день, когда это было:`,
-          `🎬 <b>${esc(picked.name)}</b>\n\nBu qaysi kuni bo'lgan, tanlang:`), {
+          `🎬 <b>${esc(picked.name)}</b>\n\nКогда это было? Запись хранится 2 дня.`,
+          `🎬 <b>${esc(picked.name)}</b>\n\nBu qachon bo'lgan? Yozuv 2 kun saqlanadi.`), {
           parse_mode: "HTML",
-          reply_markup: clipCalendar(t0.y, t0.mo, picked.id, t0, lang),
+          reply_markup: { inline_keyboard: [[0, 1].map((back) => {
+            const d = new Date(Date.UTC(t0.y, t0.mo - 1, t0.d - back));
+            const label = `${back === 0 ? L(lang, "Сегодня", "Bugun") : L(lang, "Вчера", "Kecha")} · ${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}`;
+            return { text: label, callback_data: `clip:d:${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}:${picked.id}` };
+          })] },
         });
         return res.send("ok");
       }
