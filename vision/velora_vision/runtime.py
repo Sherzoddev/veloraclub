@@ -218,7 +218,8 @@ class Controller:
             try:
                 detector = self.detector(settings.accuracy)
             except Exception as e:
-                return self._fail(f"Не удалось загрузить распознавание: {e}")
+                log.error("Распознавание не загрузилось: %s", e)
+                return self._fail("Не удалось загрузить распознавание. Подробности: вкладка «Журнал».")
 
             chats = self.chats_for(settings, snap)
             if not chats:

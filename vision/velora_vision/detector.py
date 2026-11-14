@@ -64,7 +64,12 @@ def postprocess(
 
 class PersonDetector:
     def __init__(self, model_path: str, confidence: float = 0.4, image_size: int = 640):
-        self.net = cv2.dnn.readNetFromONNX(model_path)
+        # OpenCV opens a path with the Windows ANSI code page, so a folder with
+        # Russian letters in its name (the user's name, "Рабочий стол") makes
+        # it fail. Reading the file here and handing over the bytes avoids it.
+        with open(model_path, "rb") as f:
+            data = np.frombuffer(f.read(), dtype=np.uint8)
+        self.net = cv2.dnn.readNetFromONNX(data)
         self.confidence = confidence
         self.size = image_size
 
