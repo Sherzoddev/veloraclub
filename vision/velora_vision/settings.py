@@ -47,6 +47,7 @@ class Settings:
     clips_chat_id: str = ""  # channel (-100... or @name) for the clips
     clips_mode: str = "pot_bright"  # "pot_bright" | "pot" | "bright" | "rare"
     clips_to_owner: bool = False  # also send the clips to the owner's chat
+    client_clips: bool = True  # "🎬 Мой удар": cut a client's moment from the camera archive
     autostart: bool = False  # start with Windows
     run_on_open: bool = True  # begin watching as soon as the program opens
 
@@ -123,6 +124,7 @@ class Settings:
             "clips_chat_id": self.clips_chat_id,
             "clips_mode": self.clips_mode,
             "clips_to_owner": self.clips_to_owner,
+            "client_clips": self.client_clips,
             "min_people_play": self.min_people_play,
             "unrecorded_minutes": self.unrecorded_minutes,
             "idle_minutes": self.idle_minutes,
@@ -171,6 +173,7 @@ class Settings:
             mode = "pot_bright"
         d.clips_mode = mode if mode in ("pot_bright", "pot", "bright", "rare") else "pot_bright"
         d.clips_to_owner = bool(data.get("clips_to_owner", False))
+        d.client_clips = bool(data.get("client_clips", True))
         d.min_people_play = int(data.get("min_people_play", d.min_people_play))
         d.unrecorded_minutes = float(data.get("unrecorded_minutes", d.unrecorded_minutes))
         d.idle_minutes = float(data.get("idle_minutes", d.idle_minutes))
