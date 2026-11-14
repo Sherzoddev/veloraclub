@@ -18,7 +18,6 @@
 // one Supabase client, image/font caches that survive across requests.
 
 import "dotenv/config";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import express from "express";
 import { parseClipMoment } from "./clipTime.js";
@@ -100,12 +99,9 @@ async function isClubOpen(sb: SupabaseClient, clubId: string): Promise<boolean> 
   return Boolean(data);
 }
 
-// "🎬 Мой удар": the button shows only while the camera program in the club is
-// alive (it reports the tables it can cut every few seconds). The keyboard is
-// built without awaiting, so the answer is cached and refreshed per request;
-// clientKeyboardFor finds the club of the request without it being passed on.
+// "🎬 Мои удары": the tables the camera program in the club can cut right now
+// (it reports them every few seconds); empty while the program is off.
 type ClipTable = { id: string; name: string };
-const clipClub = new AsyncLocalStorage<string>();
 const clipTablesCache = new Map<string, { at: number; tables: ClipTable[] }>();
 
 async function clipTables(sb: SupabaseClient, clubId: string, maxAgeMs = 30_000): Promise<ClipTable[]> {
@@ -116,11 +112,6 @@ async function clipTables(sb: SupabaseClient, clubId: string, maxAgeMs = 30_000)
   clipTablesCache.set(clubId, { at: Date.now(), tables });
   return tables;
 }
-
-const clipsOn = (clubId?: string) => {
-  const id = clubId ?? clipClub.getStore();
-  return Boolean(id && clipTablesCache.get(id)?.tables.length);
-};
 
 type Lang = "ru" | "uz";
 const L = (lang: Lang, ru: string, uz: string) => (lang === "uz" ? uz : ru);
@@ -271,7 +262,7 @@ const CLIENT_LABELS = {
   me: { ru: "👤 Мои данные", uz: "👤 Ma'lumotlarim" },
   invite: { ru: "🤝 Пригласить друга", uz: "🤝 Do'stni taklif qilish" },
   rival: { ru: "⚪ Найти соперника", uz: "⚪ Raqib topish" },
-  clip: { ru: "🎬 Мой удар", uz: "🎬 Mening zarbam" },
+  clip: { ru: "🎬 Мои удары", uz: "🎬 Mening zarbalarim" },
   lang: { ru: "🌐 Язык", uz: "🌐 Til" },
 } as const;
 type ClientAction = keyof typeof CLIENT_LABELS;
@@ -283,6 +274,8 @@ const clientLabel = (action: ClientAction, lang: Lang) => CLIENT_LABELS[action][
 const LEGACY_CLIENT_LABELS: Record<string, ClientAction> = {
   "🎱 Найти соперника": "rival",
   "🎱 Raqib topish": "rival",
+  "🎬 Мой удар": "clip",
+  "🎬 Mening zarbam": "clip",
 };
 
 function clientActionFor(text: string): ClientAction | null {
@@ -315,9 +308,7 @@ const clientKeyboardFor = (lang: Lang, clubId?: string) => ({
   // showMenu() via setChatMenuButton, which opens the account correctly.
   keyboard: [
     [{ text: clientLabel("tables", lang) }, { text: clientLabel("book", lang) }],
-    clipsOn(clubId)
-      ? [{ text: clientLabel("rival", lang) }, { text: clientLabel("clip", lang) }]
-      : [{ text: clientLabel("rival", lang) }],
+    [{ text: clientLabel("rival", lang) }, { text: clientLabel("clip", lang) }],
     [{ text: clientLabel("bonus", lang) }, { text: clientLabel("me", lang) }],
     [{ text: clientLabel("invite", lang) }, { text: clientLabel("lang", lang) }],
   ],
@@ -934,15 +925,15 @@ async function clientClipStart(sb: SupabaseClient, club: Club, token: string, ch
   const tables = await clipTables(sb, club.club_id, 0);
   if (!tables.length) {
     return void send(token, chatId, L(lang,
-      "Эта функция сейчас недоступна — попробуйте позже.",
-      "Bu imkoniyat hozir mavjud emas — keyinroq urinib ko'ring."), { reply_markup: clientKeyboardFor(lang, club.club_id) });
+      "🎬 <b>Мои удары</b>\n\nСкоро здесь можно будет получить видео своего удара из записи камеры. Сейчас камеры ещё подключаются — загляните позже 🙌",
+      "🎬 <b>Mening zarbalarim</b>\n\nTez orada kamera yozuvidan o'z zarbangiz videosini olish mumkin bo'ladi. Hozir kameralar ulanmoqda — keyinroq kiring 🙌"), { reply_markup: clientKeyboardFor(lang, club.club_id) });
   }
   const buttons = tables.map((t) => ({ text: t.name, callback_data: `clip:t:${t.id}` }));
   const rows: Array<typeof buttons> = [];
   for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
   await send(token, chatId, L(lang,
-    "🎬 <b>Мой удар</b>\n\nКамера записывает игру. Выберите стол, укажите время — и я пришлю ролик с вашим ударом.",
-    "🎬 <b>Mening zarbam</b>\n\nKamera o'yinni yozib boradi. Stolni tanlang, vaqtni yozing — men zarbangiz videosini yuboraman."), {
+    "🎬 <b>Мои удары</b>\n\nКамера записывает игру. Выберите стол, укажите время — и я пришлю ролик с вашим ударом.",
+    "🎬 <b>Mening zarbalarim</b>\n\nKamera o'yinni yozib boradi. Stolni tanlang, vaqtni yozing — men zarbangiz videosini yuboraman."), {
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: rows },
   });
@@ -2227,7 +2218,6 @@ app.post("/club-bot", async (req, res) => {
   const c = club as Club;
   const token = c.bot_token;
   const update: Record<string, any> = req.body ?? {};
-  clipClub.enterWith(c.club_id);
   await clipTables(sb, c.club_id);
 
   try {
