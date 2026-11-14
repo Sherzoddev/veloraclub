@@ -913,7 +913,6 @@ function clipReply(reason: string | undefined, ok: boolean, lang: Lang): string 
   switch (reason) {
     case "TOO_FRESH": return L(lang, "Это было только что — подождите минутку и напишите время ещё раз.", "Bu hozirgina bo'ldi — bir daqiqa kutib, vaqtni qayta yozing.");
     case "TOO_OLD": return L(lang, "Записи за такой давний день уже нет.", "Bunday eski kunning yozuvi endi yo'q.");
-    case "NO_SESSION": return L(lang, "В это время за этим столом не было игры. Проверьте время и стол.", "Bu vaqtda bu stolda o'yin bo'lmagan. Vaqt va stolni tekshiring.");
     case "BUSY": return L(lang, "Предыдущий ролик ещё готовится — подождите, пожалуйста.", "Oldingi video hali tayyorlanyapti — iltimos, kuting.");
     case "LIMIT": return L(lang, "Слишком много запросов. Попробуйте через час.", "So'rovlar juda ko'p. Bir soatdan keyin urinib ko'ring.");
     default: return L(lang, "Эта функция сейчас недоступна.", "Bu imkoniyat hozir mavjud emas.");
