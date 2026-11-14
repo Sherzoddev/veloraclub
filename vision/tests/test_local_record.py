@@ -254,3 +254,31 @@ def test_check_live_reads_a_stream_and_says_when_it_cannot(tmp_path):
     assert check_live(str(src)) == (True, "живой поток читается")
     ok, text = check_live(str(tmp_path / "missing.mp4"))
     assert not ok
+
+
+def probe_size(path):
+    text = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(path)], capture_output=True, text=True).stderr
+    m = re.search(r"Video: .*?, (\d{2,5})x(\d{2,5})", text)
+    return int(m.group(1)), int(m.group(2))
+
+
+def make_source(path, size):
+    subprocess.run([ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    f"testsrc=size={size}:rate=10", "-t", "4", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    str(path)], check=True)
+
+
+@pytest.mark.skipif(not ffmpeg_exe(), reason="ffmpeg is not available")
+@pytest.mark.parametrize("size,expected", [
+    ("576x576", (1024, 576)),    # a squeezed light stream becomes wide (16:9)
+    ("704x576", (1024, 576)),    # D1: stretched to 16:9
+    ("640x360", (640, 360)),     # already wide: untouched
+    ("3200x1800", (1280, 720)),  # a big wide stream is only made smaller
+])
+def test_the_clip_is_wide_whatever_the_stream_shape(tmp_path, size, expected):
+    from velora_vision.clips.archive import cut_clip
+
+    src, out = tmp_path / "s.mp4", tmp_path / "o.mp4"
+    make_source(src, size)
+    assert cut_clip(str(src), 3, out) is None
+    assert probe_size(out) == expected
