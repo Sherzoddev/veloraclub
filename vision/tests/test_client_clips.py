@@ -307,7 +307,7 @@ def test_the_next_spelling_is_tried_when_the_first_is_refused(tmp_path):
 def test_every_spelling_refused_reports_the_first_reason(tmp_path):
     why, tried = cut_first_working(playback_urls(LIVE, T, T, "Asia/Tashkent"), 4,
                                    tmp_path / "x.mp4", lambda u, s, o: "FORBIDDEN" if "subtype=0" in u else "NOT_FOUND")
-    assert why == "FORBIDDEN" and tried == ["FORBIDDEN", "NOT_FOUND", "FORBIDDEN"]
+    assert why == "FORBIDDEN" and tried == ["FORBIDDEN", "NOT_FOUND", "NOT_FOUND"]
 
 
 def test_check_archive_lists_what_every_spelling_answered():
