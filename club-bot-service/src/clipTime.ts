@@ -10,7 +10,7 @@ const YESTERDAY = /вчера|kecha/i;
  *  Today by default; "вчера"/"kecha" means yesterday; a time that is still to
  *  come today ("23:50" typed at 00:10) was yesterday's. */
 export function parseClipMoment(
-  text: string, now: Date, today: DayInZone, toUtc: ToUtc, dayOffset?: number,
+  text: string, now: Date, today: DayInZone, toUtc: ToUtc, fixedDay?: DayInZone,
 ): Date | null {
   const m = text.match(/(?<!\d)(\d{1,2})\s*[:.\-]\s*(\d{2})(?!\d)/);
   if (!m) return null;
@@ -21,8 +21,8 @@ export function parseClipMoment(
     const day = new Date(Date.UTC(today.y, today.mo - 1, today.d - days));
     return toUtc(day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate(), hh, mm);
   };
-  // The client chose the day with a button: take it as it is.
-  if (dayOffset !== undefined && dayOffset >= 0) return back(dayOffset);
+  // The client chose the day in the calendar: take it as it is.
+  if (fixedDay) return toUtc(fixedDay.y, fixedDay.mo, fixedDay.d, hh, mm);
   if (YESTERDAY.test(text)) return back(1);
   const moment = back(0);
   return moment.getTime() > now.getTime() ? back(1) : moment;
