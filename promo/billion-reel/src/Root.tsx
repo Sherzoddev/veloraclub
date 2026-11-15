@@ -6,6 +6,7 @@ import { PromoFilm } from "./cinema/Film";
 import { M, PromoMotion } from "./motion/Motion";
 import { B, PromoBright } from "./bright/Bright";
 import { CalmCover, CB, PromoCalm } from "./calm/Calm";
+import { CL, PromoClips } from "./clips/Clips";
 
 export const RemotionRoot: React.FC = () => (
   <>
@@ -27,6 +28,8 @@ export const RemotionRoot: React.FC = () => (
     <Composition id="PromoMotion" component={PromoMotion} width={1080} height={1920} fps={30} durationInFrames={M.LENGTH} />
     <Composition id="PromoBright" component={PromoBright} width={1080} height={1920} fps={30} durationInFrames={B.LENGTH} />
     <Composition id="PromoCalm" component={PromoCalm} width={1080} height={1920} fps={30} durationInFrames={CB.LENGTH} />
+    <Composition id="PromoClipsUz" component={PromoClips} defaultProps={{ lang: "uz" as const }} width={1080} height={1920} fps={30} durationInFrames={CL.LENGTH} />
+    <Composition id="PromoClipsRu" component={PromoClips} defaultProps={{ lang: "ru" as const }} width={1080} height={1920} fps={30} durationInFrames={CL.LENGTH} />
     <Still id="CalmCover" component={CalmCover} width={1080} height={1920} />
     <Composition
       id="VeloraReel"

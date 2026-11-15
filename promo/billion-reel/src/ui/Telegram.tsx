@@ -53,10 +53,12 @@ const TapKey: React.FC<{ b: Btn; frame: number; style: React.CSSProperties; hot:
  * Telegram (dark theme) chat with the club's client bot. Texts, inline
  * buttons and the reply keyboard are the bot's real ones (club-bot-service).
  */
-export const TgChat: React.FC<{ children: React.ReactNode; keyboards?: Keyboard[] }> = ({
-  children,
-  keyboards = [],
-}) => {
+export const TgChat: React.FC<{
+  children: React.ReactNode;
+  keyboards?: Keyboard[];
+  /** Telegram's own labels in the language of the phone (Uzbek by default). */
+  ui?: { open: string; placeholder: string };
+}> = ({ children, keyboards = [], ui = { open: "Klubni ochish", placeholder: "Xabar" } }) => {
   const frame = useCurrentFrame();
   const kb = [...keyboards].reverse().find((k) => frame >= k.at);
   const kbP = kb ? rise(frame, kb.at, 12) : 0;
@@ -121,9 +123,9 @@ export const TgChat: React.FC<{ children: React.ReactNode; keyboards?: Keyboard[
               fontWeight: 700,
             }}
           >
-            ▢ Klubni ochish
+            ▢ {ui.open}
           </div>
-          <div style={{ color: "#9aa1a7", fontSize: 14.5, flex: 1 }}>Xabar</div>
+          <div style={{ color: "#9aa1a7", fontSize: 14.5, flex: 1 }}>{ui.placeholder}</div>
           <div style={{ color: "#8a9096", fontSize: 18 }}>⌨︎</div>
         </div>
         {kb ? (

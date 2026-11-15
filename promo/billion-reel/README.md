@@ -40,3 +40,23 @@ Planned: local Uzbek TTS with Navoiy TTS (`aisha-org/navoiy-tts`,
 (CosyVoice at `074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc`), generating each
 line of `BILLION_ovoz_ssenariy.txt` separately. Needs network access to
 `huggingface.co`, `cdn-lfs.huggingface.co` and `cas-bridge.xethub.hf.co`.
+
+
+## «Mening zarbalarim / Мои удары» (PromoClipsUz, PromoClipsRu)
+
+A 27 s vertical film about the bot's camera function: the camera view with the
+shot, the real bot dialog (table, day, time, the video arrives), the logo and
+the call to action. 2D (SVG + the Telegram UI of the other reels), no 3D.
+Sources: `src/clips/Clips.tsx` (scenes, texts of both languages), `src/clips/Shot.tsx`
+(the billiard shot), `voice/clips_score.py` (synthesised sound on the picture's
+events), `PROMO_zarbalar_ssenariy.txt` (texts, timings, caption).
+
+```bash
+npx remotion render PromoClipsUz out/clips_uz_silent.mp4 --codec=h264 --crf=18 --muted
+npx remotion render PromoClipsRu out/clips_ru_silent.mp4 --codec=h264 --crf=18 --muted
+pip install numpy scipy soundfile
+python3 voice/clips_score.py out/clips_score.wav
+npx remotion ffmpeg -i out/clips_uz_silent.mp4 -i out/clips_score.wav -map 0:v -map 1:a \
+  -c:v libx264 -profile:v main -pix_fmt yuv420p -crf 22 -c:a aac -b:a 192k -shortest \
+  -movflags +faststart out/BILLION_mening_zarbalarim_uz.mp4
+```
