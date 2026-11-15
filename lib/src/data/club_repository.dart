@@ -433,19 +433,22 @@ class ClubRepository {
     // A local COM-port hiccup must never block a session that's already
     // been created and billed for server-side -- the cashier can still
     // flip the relay by hand from the "Rele" page if this fails.
-    try {
-      await switchRelayDevice(row['relay_device'], true);
-    } catch (_) {}
+    _relayInBackground(row['relay_device'], true);
     return row;
   }
 
   Future<Map<String, dynamic>> finishSession(String sessionId) async {
     final row = rowMap(await client
         .rpc('finish_game_session', params: {'p_session_id': sessionId}));
-    try {
-      await switchRelayDevice(row['relay_device'], false);
-    } catch (_) {}
+    _relayInBackground(row['relay_device'], false);
     return row;
+  }
+
+  /// The light is switched without making the screen wait: the session is
+  /// already saved, the screen must show it at once whatever the relay does.
+  /// A failure is not fatal (the cashier can use the "Rele" page).
+  void _relayInBackground(dynamic relayDevice, bool on) {
+    unawaited(switchRelayDevice(relayDevice, on).catchError((_) {}));
   }
 
   // A `direct_control` relay is USB-serial hardware plugged into this very
@@ -467,7 +470,9 @@ class ClubRepository {
         channel ?? (relayDevice['channel'] as num?)?.toInt() ?? 1;
     final state = on ? 1 : 0;
     final checksum = (0xA0 + resolvedChannel + state) & 0xFF;
-    await PrinterService.printRawToSerial(
+    // Off the window thread, with a time limit: a stuck USB adapter must not
+    // freeze the program (see services/serial_queue.dart).
+    await PrinterService.sendToSerialSafely(
         port, Uint8List.fromList([0xA0, resolvedChannel, state, checksum]));
   }
 
@@ -536,10 +541,8 @@ class ClubRepository {
       'p_new_resource_id': newResourceId,
       'p_reason': null,
     }));
-    try {
-      await switchRelayDevice(row['relay_device_off'], false);
-      await switchRelayDevice(row['relay_device_on'], true);
-    } catch (_) {}
+    _relayInBackground(row['relay_device_off'], false);
+    _relayInBackground(row['relay_device_on'], true);
     return row;
   }
 
