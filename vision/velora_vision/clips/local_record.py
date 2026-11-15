@@ -164,12 +164,106 @@ def clean_old(folder: Path, keep_hours: float, now: Optional[datetime] = None) -
     gone = 0
     for s, f in list_segments(folder):
         if s < limit:
-            try:
-                f.unlink()
+            if _delete(f):
                 gone += 1
-            except OSError:
-                pass
     return gone
+
+
+_warned_delete: set[str] = set()
+
+
+def _delete(f: Path) -> bool:
+    try:
+        f.unlink()
+        return True
+    except FileNotFoundError:
+        return True
+    except OSError as e:
+        # Said once per file: a piece that Windows will not let go of (an
+        # antivirus, a player) must not stay unnoticed.
+        if f.name not in _warned_delete:
+            _warned_delete.add(f.name)
+            log.warning("Запись на компьютере: не удалось удалить %s (%s)", f.name, e.strerror or e)
+        return False
+
+
+MIN_FREE_BYTES = 3 * 1024**3  # below this the oldest pieces go whatever their age
+
+
+def all_pieces(root: Path) -> list[tuple[datetime, Path]]:
+    """Every piece under `root`, in every table's folder -- also folders of
+    tables that were renamed or removed long ago -- oldest first."""
+    out: list[tuple[datetime, Path]] = []
+    try:
+        folders = [root] + [d for d in root.iterdir() if d.is_dir()]
+    except OSError:
+        return []
+    for folder in folders:
+        out += list_segments(folder)
+    return sorted(out)
+
+
+def clean_all(
+    root: Path, keep_hours: float, max_bytes: float, now: Optional[datetime] = None,
+    free_bytes: Optional[Callable[[Path], int]] = None, protect_newest: int = 3,
+) -> dict:
+    """Keeps the disk from filling up with recordings:
+
+    1. every piece older than `keep_hours` goes (in all folders under `root`);
+    2. if the pieces still take more than `max_bytes`, the oldest go until they fit;
+    3. if the disk has less than 3 GB free, the oldest go until there is room.
+
+    The newest pieces of each folder are never taken by 2 and 3 (they are
+    being written or may be asked for). Returns what was done."""
+    now = now or datetime.now()
+    free_of = free_bytes or (lambda p: shutil.disk_usage(p).free)
+    removed = {"old": 0, "over_cap": 0, "low_disk": 0, "failed": 0}
+    limit = now - timedelta(hours=keep_hours)
+    pieces = all_pieces(root)
+    for s, f in pieces:
+        if s < limit:
+            if _delete(f):
+                removed["old"] += 1
+            else:
+                removed["failed"] += 1
+    pieces = [(s, f) for s, f in all_pieces(root)]
+    newest: set[Path] = set()
+    by_folder: dict[Path, list[Path]] = {}
+    for s, f in pieces:
+        by_folder.setdefault(f.parent, []).append(f)
+    for files in by_folder.values():
+        newest.update(files[-protect_newest:])
+    sizes = {}
+    for s, f in pieces:
+        try:
+            sizes[f] = f.stat().st_size
+        except OSError:
+            sizes[f] = 0
+    total = sum(sizes.values())
+    for s, f in pieces:  # oldest first
+        if f in newest:
+            continue
+        try:
+            free = free_of(root)
+        except OSError:
+            free = MIN_FREE_BYTES
+        over = total > max_bytes
+        low = free < MIN_FREE_BYTES
+        if not (over or low):
+            break
+        if _delete(f):
+            total -= sizes.get(f, 0)
+            removed["over_cap" if over else "low_disk"] += 1
+        else:
+            removed["failed"] += 1
+    # a folder of a table nobody records any more, now empty
+    try:
+        for d in root.iterdir():
+            if d.is_dir() and not any(d.iterdir()):
+                d.rmdir()
+    except OSError:
+        pass
+    return removed
 
 
 def folder_size(folder: Path) -> int:
@@ -177,6 +271,11 @@ def folder_size(folder: Path) -> int:
         return sum(f.stat().st_size for f in folder.rglob("*.ts"))
     except OSError:
         return 0
+
+
+def root_size(root: Path) -> int:
+    """All recordings under `root`, whichever table they belong to."""
+    return folder_size(root)
 
 
 def local_naive(moment: datetime, tz: Optional[tzinfo] = None) -> datetime:
@@ -210,14 +309,14 @@ def cut_local(
     listing = Path(tempfile.mkdtemp(prefix="vv_cut_")) / "list.txt"
     try:
         listing.write_text(concat_list([f for _, f in pieces]), encoding="utf-8")
-        cmd = [exe, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0",
+        cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0",
                "-i", str(listing), "-ss", f"{offset:.2f}", "-t", f"{before + after:g}", "-an",
                "-vf", VIDEO_FILTER,
                "-c:v", "libx264", "-preset", "veryfast", "-crf", "27",
                "-movflags", "+faststart", str(out)]
         try:
-            proc = run(cmd, capture_output=True, timeout=(before + after) * 4 + 60,
-                       creationflags=_no_window())
+            proc = run(cmd, capture_output=True, stdin=subprocess.DEVNULL,
+                       timeout=(before + after) * 6 + 120, creationflags=_no_window())
         except subprocess.TimeoutExpired:
             return "TIMEOUT"
         except OSError:
@@ -239,10 +338,12 @@ class LocalRecording:
     """All cameras' recorders of the program and the cleaning of old pieces."""
 
     def __init__(self, sources: dict[str, str], root: Path, stop: threading.Event,
-                 keep_hours: float = 36, quality: str = "light",
-                 recorder_factory=CameraRecorder, clean_every: float = 600):
+                 keep_hours: float = 24, quality: str = "light",
+                 recorder_factory=CameraRecorder, clean_every: float = 300,
+                 max_gb: float = 60):
         self.root = root
         self.keep_hours = keep_hours
+        self.max_gb = max_gb
         self.stop = stop
         self.clean_every = clean_every
         self.folders = {t: root / safe_name(t) for t in sources}
@@ -257,13 +358,21 @@ class LocalRecording:
             r.start()
         self._cleaner.start()
 
+    def clean_now(self) -> dict:
+        return clean_all(self.root, self.keep_hours, self.max_gb * 1024**3)
+
     def _clean_loop(self) -> None:
         while not self.stop.is_set():
-            for folder in self.folders.values():
-                try:
-                    clean_old(folder, self.keep_hours)
-                except Exception:
-                    log.exception("Запись на компьютере: не удалось почистить старое")
+            try:
+                done = self.clean_now()
+                if any(done[k] for k in ("old", "over_cap", "low_disk")):
+                    log.info("Запись на компьютере: удалено старых кусков %d, сверх лимита %d, "
+                             "из-за нехватки места %d", done["old"], done["over_cap"], done["low_disk"])
+                if done["low_disk"]:
+                    log.warning("На диске мало места (меньше 3 ГБ): удаляю самое старое. Выберите "
+                                "другой диск или сократите срок хранения (вкладка «Настройки»).")
+            except Exception:
+                log.exception("Запись на компьютере: не удалось почистить старое")
             self.stop.wait(self.clean_every)
 
     def cut(self, table: str, moment: datetime, before: float, after: float, out: Path) -> Optional[str]:
@@ -271,4 +380,4 @@ class LocalRecording:
         return cut_local(folder, moment, before, after, out) if folder else "NO_LOCAL"
 
     def size_bytes(self) -> int:
-        return sum(folder_size(f) for f in self.folders.values())
+        return root_size(self.root)

@@ -133,7 +133,7 @@ class Controller:
             if settings.local_record:
                 root = Path(settings.records_dir.strip()) if settings.records_dir.strip() else self.records_dir
                 self.local = self.local_factory(sources, root, stop, settings.keep_hours,
-                                                settings.record_quality)
+                                                settings.record_quality, max_gb=settings.max_gb)
                 self.local.start()
             self.worker = self.worker_factory(
                 ClipsClient(settings.supabase_url, settings.bot_token), sources, self.tmp_dir, stop,

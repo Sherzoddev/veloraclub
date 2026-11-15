@@ -10,7 +10,8 @@ import pytest
 
 from velora_vision.clips.archive import check_live, ffmpeg_exe
 from velora_vision.clips.client_clips import ClipRequest, ClipRequestWorker
-from velora_vision.clips.local_record import (CameraRecorder, LocalRecording, clean_old, concat_list,
+from velora_vision.clips.local_record import (CameraRecorder, LocalRecording, all_pieces, clean_all,
+                                              clean_old, concat_list,
                                               cut_local, folder_size, list_segments, local_naive,
                                               record_url, safe_name, segment_command, segments_for)
 
@@ -282,3 +283,102 @@ def test_the_clip_is_wide_whatever_the_stream_shape(tmp_path, size, expected):
     make_source(src, size)
     assert cut_clip(str(src), 3, out) is None
     assert probe_size(out) == expected
+
+
+# -- the disk must not fill up -------------------------------------------------
+def piece(folder, name, size=10):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{name}.ts").write_bytes(b"x" * size)
+
+
+NOW = datetime(2026, 11, 15, 22, 0, 0)
+BIG = 10**12  # a cap that is never reached
+ROOMY = lambda p: 10**12  # noqa: E731  -- plenty of free space
+
+
+def test_every_folder_under_the_root_is_cleaned_also_of_tables_that_no_longer_exist(tmp_path):
+    piece(tmp_path / "1_Stol", "20261113_100000")          # old, a current table
+    piece(tmp_path / "1_Stol", "20261115_210000")
+    piece(tmp_path / "Stol__1", "20261110_100000")         # old, a table renamed long ago
+    piece(tmp_path / "Stol__1", "20261111_100000")
+    done = clean_all(tmp_path, 24, BIG, NOW, ROOMY)
+    assert done["old"] == 3
+    assert [f.name for _, f in all_pieces(tmp_path)] == ["20261115_210000.ts"]
+    assert not (tmp_path / "Stol__1").exists()             # the emptied folder is removed too
+
+
+def test_pieces_over_the_cap_go_oldest_first_but_the_newest_stay(tmp_path):
+    for h in range(8, 20):
+        piece(tmp_path / "t", f"20261115_{h:02d}0000", size=100)
+    done = clean_all(tmp_path, 24, 500, NOW, ROOMY, protect_newest=3)   # room for five
+    left = [f.name for _, f in all_pieces(tmp_path)]
+    assert done["over_cap"] == 7 and len(left) == 5
+    assert left[-1] == "20261115_190000.ts" and left[0] == "20261115_150000.ts"
+
+
+def test_a_nearly_full_disk_makes_room_but_leaves_the_newest_pieces(tmp_path):
+    for h in range(8, 14):
+        piece(tmp_path / "t", f"20261115_{h:02d}0000")
+    free = iter([10, 10, 10, 10**10, 10**10, 10**10])      # low at first, then room
+    done = clean_all(tmp_path, 24, BIG, NOW, lambda p: next(free), protect_newest=2)
+    assert done["low_disk"] == 3
+    assert len(all_pieces(tmp_path)) == 3
+
+
+def test_the_newest_pieces_are_never_taken_even_when_the_cap_is_tiny(tmp_path):
+    for h in range(8, 12):
+        piece(tmp_path / "t", f"20261115_{h:02d}0000", size=1000)
+    clean_all(tmp_path, 24, 1, NOW, ROOMY, protect_newest=3)
+    assert len(all_pieces(tmp_path)) == 3
+
+
+def test_a_piece_that_cannot_be_deleted_is_reported_not_swallowed(tmp_path, caplog, monkeypatch):
+    piece(tmp_path / "t", "20261110_100000")
+    real = Path.unlink
+
+    def refuse(self, *a, **k):
+        raise PermissionError(13, "used by another process")
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    done = clean_all(tmp_path, 24, BIG, NOW, ROOMY)
+    monkeypatch.setattr(Path, "unlink", real)
+    assert done["failed"] == 1 and "20261110_100000.ts" in caplog.text
+
+
+def test_the_cleaner_thread_works_on_all_folders_of_the_root(tmp_path):
+    piece(tmp_path / "old_name", "20200101_100000")
+    stop = threading.Event()
+
+    class Rec:
+        def __init__(self, *a):
+            pass
+
+        def start(self):
+            pass
+
+    lr = LocalRecording({"1 Stol": LIVE}, tmp_path, stop, keep_hours=24, recorder_factory=Rec,
+                        clean_every=0.01, max_gb=60)
+    lr.start()
+    for _ in range(100):
+        if not (tmp_path / "old_name").exists():
+            break
+        time.sleep(0.02)
+    stop.set()
+    assert not (tmp_path / "old_name").exists()
+
+
+def test_the_cut_never_waits_for_the_keyboard(tmp_path):
+    seen = {}
+
+    class Proc:
+        returncode = 1
+        stderr = b""
+
+    def run(cmd, **kw):
+        seen["cmd"], seen["kw"] = cmd, kw
+        return Proc()
+
+    make_pieces(tmp_path / "t", ["20261114_214100"])
+    moment = datetime(2026, 11, 14, 21, 41, 30, tzinfo=TASHKENT).astimezone(timezone.utc)
+    cut_local(tmp_path / "t", moment, 0, 60, tmp_path / "c.mp4", run=run, exe="ffmpeg", tz=TASHKENT)
+    assert "-nostdin" in seen["cmd"] and seen["kw"]["stdin"] == subprocess.DEVNULL
