@@ -2,7 +2,9 @@ import React from "react";
 import { Easing, interpolate, random } from "remotion";
 
 /* A top-down view of a Russian-billiards table: the cue ball strikes the
-   pyramid, the balls scatter and one drops into the pocket. Drawn as SVG, so
+   pyramid of fifteen, the balls scatter and one drops into the pocket. The
+   balls are Russian: ivory with black numbers (6 and 9 underlined), the cue
+   ball cream with red dots -- as in the other reels. Drawn as SVG, so
    it needs no footage of the club. `t` counts frames from the start of the
    shot (the cue is drawn back at t=0 and hits at t=HIT). */
 
@@ -26,30 +28,71 @@ const POCKETS: [number, number][] = [
   [W - RAIL, H - RAIL],
 ];
 
-const TINT = ["#d8412f", "#2f6fd8", "#e0a526", "#36a35a", "#8a4bd0", "#e0622a", "#2aa5b0", "#c93a79", "#5d6b78", "#a0732d"];
-
 type BallDef = { n: number; x0: number; y0: number; x1: number; y1: number; hero: boolean };
 
-// Pyramid of ten, apex towards the cue ball.
+// Pyramid of fifteen, apex towards the cue ball.
 const APEX: [number, number] = [1060, H / 2];
+// Where the cue ball ends up after the break (it must not be landed on).
+const CUE_END: [number, number] = [APEX[0] - 60 - 150, H / 2 + 70];
+// The camera's time stamp sits above this line; balls stay below it.
+const TOP = 215;
+
 const BALLS: BallDef[] = (() => {
   const out: BallDef[] = [];
   let n = 1;
-  for (let row = 0; row < 4; row++) {
+  for (let row = 0; row < 5; row++) {
     for (let i = 0; i <= row; i++) {
       const x0 = APEX[0] + row * 54;
       const y0 = APEX[1] + (i - row / 2) * 62;
-      const hero = n === 8;
+      const hero = n === 9;
       // Scatter: further from the apex the less far it goes; deterministic.
       const sx = (random(`bx${n}`) - 0.5) * 520 + row * 30;
       const sy = (random(`by${n}`) - 0.5) * 560;
       const x1 = Math.min(W - RAIL - BALL - 4, Math.max(RAIL + BALL + 4, x0 + sx));
-      const y1 = Math.min(H - RAIL - BALL - 4, Math.max(RAIL + BALL + 4, y0 + sy));
-      out.push({ n: n++, x0, y0, x1: hero ? POCKETS[2][0] - 10 : x1, y1: hero ? POCKETS[2][1] + 10 : y1, hero });
+      const y1 = Math.min(H - RAIL - BALL - 4, Math.max(TOP + BALL, y0 + sy));
+      out.push({ n: n++, x0, y0, x1: hero ? POCKETS[5][0] - 10 : x1, y1: hero ? POCKETS[5][1] - 10 : y1, hero });
+    }
+  }
+  // Spread the scattered balls out so none lies on another (or on the cue
+  // ball): a few passes of pushing apart, the same every render.
+  const free = out.filter((b) => !b.hero);
+  for (let pass = 0; pass < 120; pass++) {
+    const items: { x: number; y: number; fixed: boolean; b?: BallDef }[] = [
+      { x: CUE_END[0], y: CUE_END[1], fixed: true },
+      ...free.map((b) => ({ x: b.x1, y: b.y1, fixed: false, b })),
+    ];
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = items[i];
+        const c = items[j];
+        const dx = c.x - a.x;
+        const dy = c.y - a.y;
+        const d = Math.hypot(dx, dy) || 0.01;
+        const need = 2 * BALL + 10;
+        if (d >= need) continue;
+        const push = (need - d) / 2;
+        const ux = dx / d;
+        const uy = dy / d;
+        if (!a.fixed) {
+          a.x -= ux * push;
+          a.y -= uy * push;
+        }
+        if (!c.fixed) {
+          c.x += ux * (a.fixed ? push * 2 : push);
+          c.y += uy * (a.fixed ? push * 2 : push);
+        }
+      }
+    }
+    for (const it of items) {
+      if (!it.b) continue;
+      it.b.x1 = Math.min(W - RAIL - BALL - 4, Math.max(RAIL + BALL + 4, it.x));
+      it.b.y1 = Math.min(H - RAIL - BALL - 4, Math.max(TOP + BALL, it.y));
     }
   }
   return out;
 })();
+
+const INK = "#141210";
 
 const Ball: React.FC<{ x: number; y: number; n: number; scale?: number; opacity?: number; cue?: boolean }> = ({
   x,
@@ -61,16 +104,27 @@ const Ball: React.FC<{ x: number; y: number; n: number; scale?: number; opacity?
 }) => (
   <g transform={`translate(${x} ${y}) scale(${scale})`} opacity={opacity}>
     <ellipse cx={6} cy={BALL * 0.85} rx={BALL * 0.9} ry={BALL * 0.35} fill="rgba(0,0,0,.38)" />
-    <circle r={BALL} fill="url(#ivory)" />
+    <circle r={BALL} fill={cue ? "url(#cream)" : "url(#ivory)"} />
     {cue ? (
-      <circle r={5} cx={0} cy={-10} fill="#d8412f" />
-    ) : (
+      // the cue ball's red dots
       <>
-        <circle r={13} fill={TINT[(n - 1) % TINT.length]} />
-        <text y={5} textAnchor="middle" fontSize={15} fontWeight={800} fill="#fff" fontFamily="Inter, sans-serif">
+        {[
+          [-12, -10],
+          [12, -10],
+          [0, 14],
+          [-16, 12],
+          [16, 12],
+        ].map(([dx, dy], i) => (
+          <circle key={i} cx={dx} cy={dy} r={4.2} fill="#c4262b" />
+        ))}
+      </>
+    ) : (
+      <g fontFamily="Inter, Arial, sans-serif" fontWeight={800} fill={INK} textAnchor="middle">
+        <text y={7} fontSize={n > 9 ? 19 : 22}>
           {n}
         </text>
-      </>
+        {n === 6 || n === 9 ? <rect x={-7} y={12} width={14} height={2.6} fill={INK} /> : null}
+      </g>
     )}
     <ellipse cx={-9} cy={-12} rx={9} ry={5} fill="rgba(255,255,255,.7)" />
   </g>
@@ -102,9 +156,14 @@ export const Shot: React.FC<{ t: number }> = ({ t }) => {
           <stop offset="1" stopColor="#3b200f" />
         </linearGradient>
         <radialGradient id="ivory" cx="38%" cy="32%" r="75%">
-          <stop offset="0" stopColor="#fffdf3" />
-          <stop offset="0.65" stopColor="#ece4cd" />
-          <stop offset="1" stopColor="#bdb394" />
+          <stop offset="0" stopColor="#fbf6e6" />
+          <stop offset="0.65" stopColor="#f2ead6" />
+          <stop offset="1" stopColor="#c4b995" />
+        </radialGradient>
+        <radialGradient id="cream" cx="38%" cy="32%" r="75%">
+          <stop offset="0" stopColor="#fbeec5" />
+          <stop offset="0.65" stopColor="#f3dfae" />
+          <stop offset="1" stopColor="#c9b27a" />
         </radialGradient>
       </defs>
       <rect width={W} height={H} rx={34} fill="url(#wood)" />
