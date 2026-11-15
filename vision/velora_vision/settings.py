@@ -36,6 +36,7 @@ class Settings:
     keep_hours: int = 24  # how long the pieces are kept
     record_quality: str = "light"  # "light": the camera's light stream, "main": the main one
     records_dir: str = ""  # empty: the program's data folder
+    max_gb: int = 60  # the recordings never take more than this
 
     # -- helpers ----------------------------------------------------------
     def new_camera_id(self) -> str:
@@ -71,6 +72,7 @@ class Settings:
             "keep_hours": self.keep_hours,
             "record_quality": self.record_quality,
             "records_dir": self.records_dir,
+            "max_gb": self.max_gb,
         }
 
     @classmethod
@@ -102,6 +104,10 @@ class Settings:
             d.keep_hours = 24
         d.record_quality = "main" if data.get("record_quality") == "main" else "light"
         d.records_dir = str(data.get("records_dir") or "")
+        try:
+            d.max_gb = min(2000, max(5, int(data.get("max_gb", d.max_gb))))
+        except (TypeError, ValueError):
+            pass
         return d
 
 

@@ -176,9 +176,17 @@ class ClipRequestWorker(threading.Thread):
         the reason."""
         local_why = None
         if self.local is not None:
+            started = time.time()
             local_why = self.local.cut(req.table, req.moment, BEFORE, AFTER, out)
+            took = time.time() - started
             if local_why is None:
+                log.info("Ролик вырезан из записи на компьютере за %.0f с", took)
                 return None
+            log.warning("Ролик из записи на компьютере не получился (%s, %.0f с)", local_why, took)
+            if local_why != "NO_LOCAL":
+                # A timeout or a broken cut: the camera's own archive will not
+                # help, and its refusal would hide the real reason.
+                return local_why
         source = self.sources.get(req.table)
         shift = self._shift(source, tz) if source else timedelta(0)
         urls = playback_urls(source, *clip_window(req.moment, BEFORE, AFTER), tz, shift) if source else []

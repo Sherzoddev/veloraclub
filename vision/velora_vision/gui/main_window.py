@@ -288,6 +288,12 @@ class MainWindow:
         self.keep_hours = tk.StringVar(value=str(self.settings.keep_hours))
         ttk.Spinbox(row, from_=2, to=168, width=6, textvariable=self.keep_hours).pack(side="left")
         self.keep_hours.trace_add("write", lambda *_: self._changed())
+        row_cap = ttk.Frame(t)
+        row_cap.pack(fill="x", padx=28, pady=(6, 0))
+        ttk.Label(row_cap, text="Не занимать больше, ГБ", width=28).pack(side="left")
+        self.max_gb = tk.StringVar(value=str(self.settings.max_gb))
+        ttk.Spinbox(row_cap, from_=5, to=2000, width=6, textvariable=self.max_gb).pack(side="left")
+        self.max_gb.trace_add("write", lambda *_: self._changed())
         self.quality = tk.StringVar(value=self.settings.record_quality)
         ttk.Radiobutton(t, text="Лёгкий поток камеры (рекомендуется): примерно 0,3–1 ГБ в час на камеру",
                         value="light", variable=self.quality, command=self._changed
@@ -360,6 +366,10 @@ class MainWindow:
             s.keep_hours = min(168, max(2, int(float(self.keep_hours.get()))))
         except ValueError:
             pass  # half-typed number: keep the old value
+        try:
+            s.max_gb = min(2000, max(5, int(float(self.max_gb.get()))))
+        except ValueError:
+            pass
         s.record_quality = "main" if self.quality.get() == "main" else "light"
         s.records_dir = self.records_dir.get().strip()
 

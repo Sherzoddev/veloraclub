@@ -23,8 +23,9 @@ class FakeWorker(threading.Thread):
 
 
 class FakeLocal:
-    def __init__(self, sources, root, stop, keep_hours, quality):
+    def __init__(self, sources, root, stop, keep_hours, quality, max_gb=60):
         self.sources, self.root, self.keep_hours, self.quality = sources, root, keep_hours, quality
+        self.max_gb = max_gb
         self.recorders = []
         self.started = False
 

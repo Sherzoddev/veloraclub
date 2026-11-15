@@ -226,7 +226,8 @@ VIDEO_FILTER = (
 def cut_command(exe: str, source: str, seconds: float, out: Path) -> list[str]:
     """ffmpeg reads the playback stream and writes a small H.264 file that
     plays inside Telegram (the camera may send H.265)."""
-    cmd = [exe, "-hide_banner", "-loglevel", "error", "-y"]
+    # -nostdin: the program has no console, and ffmpeg must never wait for a key.
+    cmd = [exe, "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
     if source.lower().startswith(("rtsp://", "rtsps://")):
         cmd += ["-rtsp_transport", "tcp"]
     cmd += [
@@ -249,7 +250,7 @@ def cut_clip(
     try:
         # Playback runs about as fast as the video is long, so allow for it.
         proc = run(cut_command(exe, source, seconds, out), capture_output=True,
-                   timeout=seconds * 3 + 90, creationflags=_no_window())
+                   stdin=subprocess.DEVNULL, timeout=seconds * 3 + 90, creationflags=_no_window())
     except subprocess.TimeoutExpired:
         return "TIMEOUT"
     except OSError:

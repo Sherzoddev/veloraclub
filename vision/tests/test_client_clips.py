@@ -462,3 +462,34 @@ def test_a_clip_can_be_cut_from_the_cameras_web_address(tmp_path):
         assert "startTime=2026-11-14%2021%3A47%3A05" in asked[0]
     finally:
         server.shutdown()
+
+
+def test_a_timeout_of_the_own_recording_is_reported_as_it_is_not_as_the_cameras_refusal(tmp_path):
+    asked = []
+
+    class SlowLocal:
+        def cut(self, *a):
+            return "TIMEOUT"
+
+    w = ClipRequestWorker(FakeClient(), {"Стол 1": LIVE}, tmp_path, threading.Event(),
+                          cut=lambda *a: asked.append(a) or "FORBIDDEN",
+                          shift_of=lambda *a: timedelta(0), local=SlowLocal())
+    assert not w.handle(REQ, "Asia/Tashkent")
+    assert w.client.failed == [(REQ.id, "TIMEOUT")]
+    assert asked == []  # the camera's archive was not even asked
+
+
+def test_the_archive_cut_never_waits_for_the_keyboard(tmp_path):
+    seen = {}
+
+    class Proc:
+        returncode = 0
+        stderr = b""
+
+    def run(cmd, **kw):
+        seen["cmd"], seen["kw"] = cmd, kw
+        (tmp_path / "x.mp4").write_bytes(b"x" * 5000)
+        return Proc()
+
+    assert cut_clip(LIVE, 4, tmp_path / "x.mp4", run=run, exe="ffmpeg") is None
+    assert "-nostdin" in seen["cmd"] and seen["kw"]["stdin"] == subprocess.DEVNULL
