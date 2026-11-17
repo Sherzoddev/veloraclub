@@ -16,6 +16,7 @@ from ..camera import mask_url
 from ..runtime import FAILED, RUNNING, STARTING, STOPPED, Controller, LogBuffer
 from ..settings import CameraSettings, Settings
 from .camera_dialog import CameraDialog
+from .camera_image import CameraImageDialog
 from .common import (FONT_BIG, FONT_BOLD, GREEN, GREY, ORANGE, RED, Background,
                      apply_style, clipboard_text, hint, install_clipboard_support)
 
@@ -197,6 +198,7 @@ class MainWindow:
         row2.pack(fill="x", padx=16, pady=(6, 4))
         self.check_cam_btn = ttk.Button(row2, text="Проверить запись камеры", command=self._check_camera)
         self.check_cam_btn.pack(side="left")
+        ttk.Button(row2, text="Изображение камеры…", command=self._camera_image).pack(side="left", padx=6)
         self.cam_result = ttk.Label(t, text="", wraplength=760, justify="left")
         self.cam_result.pack(anchor="w", padx=16, pady=(2, 4))
         hint(t, "У каждой камеры укажите, какой стол она снимает (название как в программе "
@@ -252,6 +254,12 @@ class MainWindow:
             self.settings.cameras.remove(cam)
             self._save_now()
             self._refresh_all()
+
+    def _camera_image(self) -> None:
+        """Glare on the table: the camera's picture settings."""
+        cam = self._selected_camera()
+        if cam:
+            CameraImageDialog(self.root, self.bg, cam, self.folder / "camera_backup")
 
     def _check_camera(self) -> None:
         cam = self._selected_camera()
