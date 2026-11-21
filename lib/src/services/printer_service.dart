@@ -13,14 +13,18 @@
 // [EscPosBuilder]. Nothing here knows about receipts, tables or Supabase —
 // it only knows how to get bytes to a device.
 
+import 'dart:async';
 import 'dart:ffi';
 import 'dart:io' show Platform;
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import 'package:flutter_libserialport/flutter_libserialport.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:win32/win32.dart';
+
+import 'serial_queue.dart';
 
 enum PrinterTransport { windows, usb, bluetooth }
 
@@ -218,31 +222,25 @@ abstract final class PrinterService {
     if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
       throw PrinterException('COM-port faqat kompyuterda ishlaydi');
     }
-    final port = SerialPort(portName);
-    if (!port.openReadWrite()) {
-      final error = SerialPort.lastError;
-      throw PrinterException(
-          'Portni ochib bo\'lmadi: $portName${error != null ? ' ($error)' : ''}');
+    _writeSerialBlocking(portName, bytes, baudRate);
+  }
+
+  static final SerialQueue _relayQueue = SerialQueue();
+
+  /// A short command to a COM port (the table-light relay) that can never
+  /// freeze the program: it runs in a background isolate, with a time limit
+  /// and a second try, one command after another. See serial_queue.dart.
+  static Future<void> sendToSerialSafely(
+    String portName,
+    Uint8List bytes, {
+    int baudRate = 9600,
+  }) {
+    if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) {
+      return Future.error(
+          PrinterException('COM-port faqat kompyuterda ishlaydi'));
     }
-    try {
-      // `port.config = ...` makes the port take ownership of this config and
-      // dispose it later (in port.dispose(), below) -- disposing it here too
-      // would free the same native struct twice, corrupting the heap.
-      port.config = SerialPortConfig()
-        ..baudRate = baudRate
-        ..bits = 8
-        ..parity = SerialPortParity.none
-        ..stopBits = 1
-        ..setFlowControl(SerialPortFlowControl.none);
-      final written = port.write(bytes);
-      if (written != bytes.length) {
-        throw PrinterException(
-            'Barcha ma\'lumot yuborilmadi ($written/${bytes.length} bayt)');
-      }
-    } finally {
-      port.close();
-      port.dispose();
-    }
+    return _relayQueue.send(() =>
+        Isolate.run(() => _writeSerialBlocking(portName, bytes, baudRate)));
   }
 
   static Future<void> print(PrinterConfig config, Uint8List bytes) {
@@ -261,5 +259,35 @@ abstract final class PrinterService {
         }
         return printRawToSerial(port, bytes, baudRate: config.baudRate);
     }
+  }
+}
+
+/// Opens the COM port, writes the bytes and closes it. Blocks: call it from an
+/// isolate (see [PrinterService.sendToSerialSafely]) unless the caller can wait.
+void _writeSerialBlocking(String portName, Uint8List bytes, int baudRate) {
+  final port = SerialPort(portName);
+  if (!port.openReadWrite()) {
+    final error = SerialPort.lastError;
+    throw PrinterException(
+        'Portni ochib bo\'lmadi: $portName${error != null ? ' ($error)' : ''}');
+  }
+  try {
+    // `port.config = ...` makes the port take ownership of this config and
+    // dispose it later (in port.dispose(), below) -- disposing it here too
+    // would free the same native struct twice, corrupting the heap.
+    port.config = SerialPortConfig()
+      ..baudRate = baudRate
+      ..bits = 8
+      ..parity = SerialPortParity.none
+      ..stopBits = 1
+      ..setFlowControl(SerialPortFlowControl.none);
+    final written = port.write(bytes);
+    if (written != bytes.length) {
+      throw PrinterException(
+          'Barcha ma\'lumot yuborilmadi ($written/${bytes.length} bayt)');
+    }
+  } finally {
+    port.close();
+    port.dispose();
   }
 }
