@@ -11,6 +11,9 @@ Velora Vision использует:
   роликов. Исходный код FFmpeg: https://ffmpeg.org/download.html#get-sources ,
   исходный код x264: https://code.videolan.org/videolan/x264 . Пакет:
   https://github.com/imageio/imageio-ffmpeg
+- **cloudflared** (файл `cloudflared.exe`, Cloudflare): Apache License 2.0.
+  Запускается как отдельная программа для «📺 Онлайн» (туннель к телефону).
+  https://github.com/cloudflare/cloudflared
 - **Python**, **tkinter**, **tzdata**: лицензия PSF / Apache 2.0.
 
 Тексты лицензий лежат в папках соответствующих пакетов внутри `_internal`.

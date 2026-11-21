@@ -53,6 +53,9 @@ jobs:
       - name: Pack
         shell: pwsh
         run: |
+          # Cloudflare's tunnel program for «📺 Онлайн» (version as in velora_vision/live_view.py)
+          Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/download/2026.10.0/cloudflared-windows-amd64.exe" -OutFile "dist\VeloraVision\cloudflared.exe"
+          if ((Get-Item "dist\VeloraVision\cloudflared.exe").Length -lt 1MB) { throw "cloudflared download failed" }
           Copy-Item "README_USER.txt" "dist\VeloraVision\README.txt"
           Copy-Item "THIRD_PARTY_NOTICES.md" "dist\VeloraVision\THIRD_PARTY_NOTICES.md"
           Compress-Archive -Path "dist\VeloraVision" -DestinationPath "VeloraVision-windows.zip"

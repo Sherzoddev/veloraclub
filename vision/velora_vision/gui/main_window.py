@@ -17,10 +17,11 @@ from ..runtime import FAILED, RUNNING, STARTING, STOPPED, Controller, LogBuffer
 from ..settings import CameraSettings, Settings
 from .camera_dialog import CameraDialog
 from .camera_image import CameraImageDialog
+from .my_bot_tab import MyBotTab
 from .common import (FONT_BIG, FONT_BOLD, GREEN, GREY, ORANGE, RED, Background,
                      apply_style, clipboard_text, hint, install_clipboard_support)
 
-TAB_HOME, TAB_BOT, TAB_CAMERAS, TAB_SETTINGS, TAB_LOG = range(5)
+TAB_HOME, TAB_BOT, TAB_CAMERAS, TAB_MYBOT, TAB_SETTINGS, TAB_LOG = range(6)
 STEP_TEXTS = ["Токен бота владельца", "Камера", "У камеры выбран стол"]
 
 
@@ -51,15 +52,18 @@ class MainWindow:
         self.tab_home = ttk.Frame(self.nb)
         self.tab_bot = ttk.Frame(self.nb)
         self.tab_cams = ttk.Frame(self.nb)
+        self.tab_mybot = ttk.Frame(self.nb)
         self.tab_set = ttk.Frame(self.nb)
         self.tab_log = ttk.Frame(self.nb)
         for tab, title in ((self.tab_home, "Главная"), (self.tab_bot, "1. Бот"),
-                           (self.tab_cams, "2. Камеры"), (self.tab_set, "Настройки"),
-                           (self.tab_log, "Журнал")):
+                           (self.tab_cams, "2. Камеры"), (self.tab_mybot, "Мой бот"),
+                           (self.tab_set, "Настройки"), (self.tab_log, "Журнал")):
             self.nb.add(tab, text=title)
         self._build_home()
         self._build_bot()
         self._build_cameras()
+        self.mybot = MyBotTab(self.tab_mybot, lambda: self.settings, self._changed, folder / "tmp",
+                              lambda: self.controller.local, data_dir=folder)
         self._build_settings()
         self._build_log()
 
@@ -67,12 +71,15 @@ class MainWindow:
                              "продолжит работать.", foreground=GREY).pack(anchor="w", padx=14, pady=(0, 8))
 
         self._refresh_all()
+        self.mybot.sync()
         self._tick()
 
         if minimized:
             root.iconify()
         if self.settings.run_on_open and not self.settings.problems():
             self.start()
+        elif self.settings.my_bot_token and not self.settings.bot_token:
+            self.nb.select(TAB_MYBOT)  # a computer only for «Мой бот»
         else:
             self.nb.select(self._first_incomplete_tab())
 
@@ -380,6 +387,7 @@ class MainWindow:
             pass
         s.record_quality = "main" if self.quality.get() == "main" else "light"
         s.records_dir = self.records_dir.get().strip()
+        self.mybot.collect(s)
 
     def _changed(self) -> None:
         if self._save_job:
@@ -392,6 +400,7 @@ class MainWindow:
         settings_mod.save(self.folder, self.settings)
         autostart.set_enabled(self.settings.autostart)
         self._refresh_steps()
+        self.mybot.sync()
 
     def _first_incomplete_tab(self) -> int:
         s = self.settings
@@ -445,6 +454,7 @@ class MainWindow:
             if w is not None and c.state == RUNNING else "")
         self._refresh_record()
         self._refresh_log()
+        self.mybot.tick()
         self.root.after(1000, self._tick)
 
     def _refresh_record(self) -> None:
@@ -476,11 +486,12 @@ class MainWindow:
 
     # ================= closing =================
     def _on_close(self) -> None:
-        if self.controller.is_active():
+        if self.controller.is_active() or self.mybot.running():
             answer = messagebox.askyesnocancel(
                 "Velora Vision",
                 "Программа работает.\n\nДа: свернуть окно, программа продолжит работать.\n"
-                "Нет: закрыть программу, ролики по просьбам клиентов перестанут приходить.",
+                "Нет: закрыть программу, ролики по просьбам клиентов перестанут приходить, "
+                "«Мой бот» перестанет отвечать.",
                 parent=self.root)
             if answer is None:
                 return
@@ -491,5 +502,6 @@ class MainWindow:
 
     def _quit(self) -> None:
         self._save_now()
+        self.mybot.stop()
         self.controller.stop()
         self.root.destroy()

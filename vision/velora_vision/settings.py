@@ -37,6 +37,9 @@ class Settings:
     record_quality: str = "light"  # "light": the camera's light stream, "main": the main one
     records_dir: str = ""  # empty: the program's data folder
     max_gb: int = 60  # the recordings never take more than this
+    # «Мой бот»: the owner's own Telegram bot (see personal_bot.py)
+    my_bot_token: str = ""  # secret
+    my_bot_owner: str = ""  # the owner's Telegram chat id, set by pairing
 
     # -- helpers ----------------------------------------------------------
     def new_camera_id(self) -> str:
@@ -73,6 +76,8 @@ class Settings:
             "record_quality": self.record_quality,
             "records_dir": self.records_dir,
             "max_gb": self.max_gb,
+            "my_bot_token": secrets_store.protect(self.my_bot_token),
+            "my_bot_owner": self.my_bot_owner,
         }
 
     @classmethod
@@ -108,6 +113,8 @@ class Settings:
             d.max_gb = min(2000, max(5, int(data.get("max_gb", d.max_gb))))
         except (TypeError, ValueError):
             pass
+        d.my_bot_token = secrets_store.unprotect(str(data.get("my_bot_token", "")))
+        d.my_bot_owner = str(data.get("my_bot_owner") or "")
         return d
 
 
