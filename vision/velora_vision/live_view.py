@@ -12,8 +12,11 @@
   user is the owner, and only then hands out a key for the pictures.
 * A camera is read only while a picture of it is asked for, and stopped
   20 seconds after the last one: nobody watching, nothing is spent.
-* Pictures go as MJPEG (a stream of JPEGs): every phone shows it, nothing to
-  install; the page falls back to asking JPEG by JPEG if a stream stalls.
+* Pictures go JPEG by JPEG, and the page asks for the next one only when it
+  has the previous one: on a slow internet the picture gets rarer but never
+  late (a pushed stream would queue up in the tunnel and lag behind more and
+  more). The picture size follows the speed. Zoom: two fingers / double tap;
+  zoomed in, the camera's main stream is used.
 """
 from __future__ import annotations
 
@@ -153,16 +156,17 @@ class Feed:
         with self.cond:
             return self.cond.wait_for(lambda: self.seq > after or self.failing, timeout) and self.seq > after
 
-    def jpeg(self, width: int) -> tuple[int, Optional[bytes]]:
+    def jpeg(self, width: int, quality: Optional[int] = None) -> tuple[int, Optional[bytes]]:
         """(number of the frame, JPEG of it at that width)."""
         with self.cond:
             seq, frame = self.seq, self.frame
         if frame is None:
             return seq, None
-        key = (seq, width)
+        quality = quality or (70 if width <= 800 else 80)
+        key = (seq, width, quality)
         if self._cache[0] == key:
             return seq, self._cache[1]
-        data = encode_jpeg(to_16x9(frame, width), 70 if width <= 800 else 80)
+        data = encode_jpeg(to_16x9(frame, width), quality)
         self._cache = (key, data)
         return seq, data
 
@@ -253,19 +257,33 @@ class LiveServer:
                 try:
                     width = min(1920, max(320, int(q.get("w", "640"))))
                     fps = min(15.0, max(0.5, float(q.get("fps", "3"))))
+                    quality = min(90, max(35, int(q.get("q", "0")))) if q.get("q") else None
+                    after = max(0, int(q.get("after", "0")))
                 except ValueError:
-                    width, fps = 640, 3.0
+                    width, fps, quality, after = 640, 3.0, None, 0
                 if m.group(1) == "jpeg":
-                    return self._one(feed, width)
+                    return self._one(feed, width, quality, after)
                 return self._stream(feed, width, fps, q.get("k", ""))
 
-            def _one(self, feed: Feed, width: int) -> None:
+            def _one(self, feed: Feed, width: int, quality: Optional[int], after: int) -> None:
+                """The newest picture after frame `after`. The page asks for the
+                next one only when this one has arrived, so pictures never queue
+                up on a slow internet: no growing delay."""
                 feed.touch()
-                feed.wait_new(0, 10)
-                _, data = feed.jpeg(width)
+                if not feed.wait_new(after, 8):
+                    # 503: the camera does not answer; 204: nothing newer yet, ask again
+                    silent = getattr(feed, "failing", False) or feed.seq == 0
+                    return self._send(503 if silent else 204, b"", "text/plain")
+                seq, data = feed.jpeg(width, quality)
                 if not data:
                     return self._send(503, b"", "text/plain")
-                self._send(200, data, "image/jpeg")
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Seq", str(seq))
+                self.end_headers()
+                self.wfile.write(data)
 
             def _stream(self, feed: Feed, width: int, fps: float, key: str) -> None:
                 self.send_response(200)
@@ -436,94 +454,214 @@ class LiveService:
 
 PAGE = r"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Камеры онлайн</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{--bg:#0f1115;--fg:#f2f4f7;--muted:#9aa3af;--card:#1a1d24;--accent:#2ea6ff}
-*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--fg);
-font:15px/1.35 -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
-header{padding:12px 16px 4px;display:flex;align-items:center;gap:8px}
+:root{--bg:#0f1115;--fg:#f2f4f7;--muted:#9aa3af;--card:#1a1d24;--accent:#2ea6ff;
+--top:max(env(safe-area-inset-top),var(--tg-content-safe-area-inset-top,0px));
+--bottom:max(env(safe-area-inset-bottom),var(--tg-safe-area-inset-bottom,0px))}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.35 -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+header{padding:calc(12px + var(--top)) 16px 4px;display:flex;align-items:center;gap:8px}
 h1{font-size:17px;margin:0;flex:1}.dot{width:9px;height:9px;border-radius:50%;background:#e5484d}
 .dot.on{background:#30a46c}#msg{padding:8px 16px;color:var(--muted)}
-#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;padding:8px 12px 16px}
-.cam{background:var(--card);border-radius:12px;overflow:hidden;cursor:pointer}
-.cam img,#big img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;padding:8px 12px calc(16px + var(--bottom))}
+.cam{background:var(--card);border-radius:12px;overflow:hidden;cursor:pointer;position:relative}
+.cam img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000}
 .cam div{padding:8px 10px;font-weight:600}.cam small{color:var(--muted);font-weight:400}
-#big{position:fixed;inset:0;background:#000;display:none;flex-direction:column;justify-content:center}
-#big img{aspect-ratio:auto;max-height:100%;height:auto}
-#bar{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;padding:12px;
-padding-bottom:calc(12px + env(safe-area-inset-bottom));background:linear-gradient(transparent,#000c)}
-#bar span{flex:1;align-self:center;font-weight:600}
-button{background:#ffffff22;color:#fff;border:0;border-radius:10px;padding:9px 14px;font:inherit}
-button.on{background:var(--accent)}
+.off{position:absolute;left:0;right:0;top:0;aspect-ratio:16/9;display:none;align-items:center;justify-content:center;
+color:#fff;background:#000a;font-size:13px;text-align:center;padding:8px}
+.off.show{display:flex}
+#big{position:fixed;inset:0;background:#000;display:none;z-index:5}
+#view{position:absolute;inset:0;overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center}
+#bigimg{max-width:100%;max-height:100%;transform-origin:center center;will-change:transform;user-select:none;-webkit-user-drag:none}
+#bigoff{position:absolute;inset:0}
+#top{position:absolute;left:0;right:0;top:0;display:flex;gap:8px;align-items:center;
+padding:calc(10px + var(--top)) 12px 18px;background:linear-gradient(#000c,transparent);pointer-events:none}
+#top span{flex:1;font-weight:600;text-shadow:0 1px 2px #000}#zl{color:var(--muted);font-size:13px}
+#bar{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;
+padding:18px 12px calc(12px + var(--bottom));background:linear-gradient(transparent,#000c)}
+button{background:#ffffff26;color:#fff;border:0;border-radius:10px;min-width:44px;height:42px;padding:0 12px;font:inherit;font-weight:600}
+button.on{background:var(--accent)}button[hidden]{display:none}
 </style></head><body>
 <header><span class="dot" id="dot"></span><h1>Камеры онлайн</h1></header>
 <div id="msg">Подключаю…</div><div id="grid"></div>
-<div id="big"><img id="bigimg" alt=""><div id="bar"><span id="bigname"></span>
-<button id="hd">HD</button><button id="close">✕</button></div></div>
+<div id="big"><div id="view"><img id="bigimg" alt="" draggable="false"></div>
+<div class="off" id="bigoff">Камера не отвечает, пробую снова…</div>
+<div id="top"><span id="bigname"></span><span id="zl"></span></div>
+<div id="bar"><button id="zout" aria-label="Уменьшить">－</button><button id="zin" aria-label="Увеличить">＋</button>
+<button id="hd">HD</button><button id="fs" hidden aria-label="Весь экран">⛶</button><button id="close" aria-label="Закрыть">✕</button></div></div>
 <script>
-const tg = window.Telegram && Telegram.WebApp; if (tg) { tg.ready(); tg.expand(); }
-let key = "", hd = false, current = null;
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); try { tg.disableVerticalSwipes(); } catch (e) {} }
 const $ = id => document.getElementById(id);
-function src(kind, id, w, fps, extra) {
-  return `/${kind}/${id}?k=${encodeURIComponent(key)}&w=${w}&fps=${fps}${extra||""}&t=${Date.now()}`;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let key = "";
+
+// The phone asks for the next picture only when it has the previous one, so on
+// a slow internet the picture gets rarer, never late. The size of the picture
+// follows the speed: slow answers make it smaller, fast ones bigger again.
+class Player {
+  constructor(img, off, camId, o) {
+    Object.assign(this, {img, off, camId, o, on: true, shown: 0, req: 0, gen: 0, url: null});
+    this.w = o.start;
+    for (let i = 0; i < o.inflight; i++) this.loop();
+  }
+  stop() { this.on = false; if (this.url) URL.revokeObjectURL(this.url); this.url = null; }
+  setHD(hd) {
+    if (this.o.hd === hd) return;
+    this.o.hd = hd; this.gen++; this.shown = 0; this.req = 0;
+    this.w = hd ? this.o.hdStart : this.o.start;
+  }
+  get list() { return this.o.hd ? this.o.hdSizes : this.o.sizes; }
+  async loop() {
+    while (this.on) {
+      const gen = this.gen, after = Math.max(this.shown, this.req);
+      this.req = after + 1;
+      const t0 = performance.now();
+      let r;
+      try {
+        r = await fetch(`/jpeg/${this.camId}?k=${encodeURIComponent(key)}&w=${this.w}&q=${this.o.hd ? this.o.hdq : this.o.q}` +
+                        `&after=${after}${this.o.hd ? "&hd=1" : ""}`, {cache: "no-store"});
+      } catch (e) { this.req = 0; await sleep(2000); continue; }
+      if (!this.on) return;
+      if (r.status === 403) { this.on = false; $("msg").textContent = "Доступ истёк: закройте окно и нажмите «📺 Онлайн» снова."; return; }
+      if (r.status === 204) { this.req = 0; continue; }
+      if (r.status !== 200) { this.req = 0; this.off.classList.add("show"); await sleep(2000); continue; }
+      const seq = +r.headers.get("X-Seq");
+      const blob = await r.blob();
+      if (!this.on || gen !== this.gen) continue;
+      this.adapt(performance.now() - t0);
+      if (seq > this.shown) {
+        this.shown = seq;
+        const u = URL.createObjectURL(blob), old = this.url;
+        this.url = u; this.img.src = u;
+        if (old) setTimeout(() => URL.revokeObjectURL(old), 2000);
+        this.off.classList.remove("show"); $("dot").classList.add("on");
+      }
+      const rest = this.o.gap - (performance.now() - t0);
+      if (rest > 0) await sleep(rest);
+    }
+  }
+  adapt(ms) {
+    const s = this.list; let i = s.indexOf(this.w); if (i < 0) i = 0;
+    if (ms > 900 && i > 0) this.w = s[i - 1];
+    else if (ms < 300 && i < s.length - 1) this.w = s[i + 1];
+  }
 }
-// MJPEG first; if no picture comes, ask JPEG by JPEG instead.
-function play(img, id, w, fps, extra) {
-  let got = false, timer = null;
-  img.onload = () => { got = true; $("dot").classList.add("on"); };
-  img.src = src("mjpeg", id, w, fps, extra);
-  setTimeout(() => {
-    if (got || img.dataset.cam !== id) return;
-    const step = () => {
-      if (img.dataset.cam !== id || img.dataset.mode !== "poll") return;
-      const n = new Image();
-      n.onload = () => { img.src = n.src; timer = setTimeout(step, 1000 / fps); };
-      n.onerror = () => { timer = setTimeout(step, 2000); };
-      n.src = src("jpeg", id, w, fps, extra);
-    };
-    img.dataset.mode = "poll"; step();
-  }, 7000);
+const GRID = {inflight: 1, gap: 350, q: 60, sizes: [320, 480, 640], start: 480};
+const BIG = {inflight: 2, gap: 0, q: 72, sizes: [640, 960, 1280], start: 960,
+             hdq: 80, hdSizes: [960, 1280, 1600, 1920], hdStart: 1280, hd: false};
+
+// -- zoom: two fingers, double tap, mouse wheel, ＋/－ --------------------------
+const view = $("view"), bigimg = $("bigimg");
+let z = {s: 1, x: 0, y: 0}, hdByHand = false, big = null, current = null;
+function bounds() {
+  const W = view.clientWidth, H = view.clientHeight;
+  const w = bigimg.clientWidth || W, h = bigimg.clientHeight || H;
+  return {mx: Math.max(0, (w * z.s - W) / 2), my: Math.max(0, (h * z.s - H) / 2)};
 }
-function stop(img) { img.dataset.cam = ""; img.dataset.mode = ""; img.removeAttribute("src"); }
+function apply() {
+  z.s = Math.min(8, Math.max(1, z.s));
+  const b = bounds();
+  z.x = Math.min(b.mx, Math.max(-b.mx, z.x)); z.y = Math.min(b.my, Math.max(-b.my, z.y));
+  bigimg.style.transform = `translate(${z.x}px,${z.y}px) scale(${z.s})`;
+  $("zl").textContent = z.s > 1.05 ? z.s.toFixed(1) + "×" : "";
+  // Zoomed in: the camera's main stream, else the small one shows blocks.
+  if (big && !hdByHand) big.setHD(z.s >= 2);
+}
+// zoom by factor k keeping the point (px, py) of the screen in place
+function zoomAt(k, px, py) {
+  const r = view.getBoundingClientRect();
+  const cx = px - r.left - r.width / 2, cy = py - r.top - r.height / 2;
+  const s2 = Math.min(8, Math.max(1, z.s * k)), f = s2 / z.s;
+  z.x = cx - (cx - z.x) * f; z.y = cy - (cy - z.y) * f; z.s = s2; apply();
+}
+function center() { const r = view.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
+const pts = new Map(); let pinch = null, lastTap = 0;
+view.addEventListener("pointerdown", e => {
+  view.setPointerCapture(e.pointerId); pts.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = {d: Math.hypot(a.x - b.x, a.y - b.y)}; }
+  if (pts.size === 1) {
+    const now = Date.now();
+    if (now - lastTap < 300) { if (z.s > 1.05) { z = {s: 1, x: 0, y: 0}; apply(); } else zoomAt(3, e.clientX, e.clientY); lastTap = 0; }
+    else lastTap = now;
+  }
+});
+view.addEventListener("pointermove", e => {
+  const p = pts.get(e.pointerId); if (!p) return;
+  const nx = e.clientX, ny = e.clientY;
+  if (pts.size === 1 && z.s > 1) { z.x += nx - p.x; z.y += ny - p.y; apply(); }
+  p.x = nx; p.y = ny;
+  if (pts.size === 2 && pinch) {
+    const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d > 10) { zoomAt(d / pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2); pinch.d = d; }
+  }
+});
+const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+view.addEventListener("pointerup", up); view.addEventListener("pointercancel", up);
+view.addEventListener("wheel", e => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.25 : 0.8, e.clientX, e.clientY); }, {passive: false});
+$("zin").onclick = () => zoomAt(1.6, ...center());
+$("zout").onclick = () => zoomAt(1 / 1.6, ...center());
+window.addEventListener("resize", apply);
+
+// -- screens -----------------------------------------------------------------
+let cams = [], grid = [];
+function startGrid() {
+  stopGrid();
+  document.querySelectorAll(".cam").forEach(el =>
+    grid.push(new Player(el.querySelector("img"), el.querySelector(".off"), el.dataset.id, {...GRID})));
+}
+function stopGrid() { grid.forEach(p => p.stop()); grid = []; }
 function openBig(cam) {
-  current = cam; $("bigname").textContent = cam.name; $("big").style.display = "flex";
-  document.querySelectorAll(".cam img").forEach(stop);
-  const img = $("bigimg"); img.dataset.cam = cam.id; img.dataset.mode = "";
-  play(img, cam.id, hd ? 1600 : 1024, 8, hd ? "&hd=1" : "");
-  if (tg) { tg.BackButton.show(); }
+  current = cam; stopGrid();
+  $("bigname").textContent = cam.name; $("big").style.display = "block";
+  z = {s: 1, x: 0, y: 0}; hdByHand = false; $("hd").classList.remove("on");
+  bigimg.removeAttribute("src");
+  big = new Player(bigimg, $("bigoff"), cam.id, {...BIG}); apply();
+  if (tg) tg.BackButton.show();
 }
 function closeBig() {
-  stop($("bigimg")); $("big").style.display = "none"; current = null;
-  if (tg) tg.BackButton.hide(); startGrid();
-}
-let cams = [];
-function startGrid() {
-  document.querySelectorAll(".cam img").forEach((img) => {
-    img.dataset.cam = img.dataset.id; img.dataset.mode = "";
-    play(img, img.dataset.id, 640, 2);
-  });
+  if (big) big.stop(); big = null; current = null;
+  $("big").style.display = "none"; $("bigoff").classList.remove("show");
+  if (tg) { tg.BackButton.hide(); if (tg.isFullscreen) try { tg.exitFullscreen(); } catch (e) {} }
+  startGrid();
 }
 $("close").onclick = closeBig;
-$("hd").onclick = () => { hd = !hd; $("hd").classList.toggle("on", hd); if (current) openBig(current); };
+$("hd").onclick = () => {
+  hdByHand = !$("hd").classList.contains("on");
+  $("hd").classList.toggle("on", hdByHand);
+  if (big) big.setHD(hdByHand || z.s >= 2);
+};
+if (tg && tg.isVersionAtLeast && tg.isVersionAtLeast("8.0")) {
+  $("fs").hidden = false;
+  $("fs").onclick = () => { try { tg.isFullscreen ? tg.exitFullscreen() : tg.requestFullscreen(); } catch (e) {} };
+}
 if (tg) tg.BackButton.onClick(closeBig);
+document.addEventListener("visibilitychange", () => {
+  // the app hidden: stop asking the computer for pictures
+  if (document.hidden) { stopGrid(); if (big) big.stop(); }
+  else if (current) openBig(current); else if (key) startGrid();
+});
+
 fetch("/auth", {method: "POST", body: tg ? tg.initData : ""})
   .then(r => r.json().then(d => ({ok: r.ok, d})))
   .then(({ok, d}) => {
     if (!ok) { $("msg").textContent = d.error || "Нет доступа."; return; }
     key = d.key; cams = d.cams;
     if (!cams.length) { $("msg").textContent = "В программе нет камер."; return; }
-    $("msg").textContent = "Нажмите на камеру, чтобы открыть на весь экран.";
+    $("msg").textContent = "Нажмите на камеру: на весь экран. Увеличить — двумя пальцами или двойным касанием.";
     for (const c of cams) {
-      const el = document.createElement("div"); el.className = "cam";
-      const img = document.createElement("img"); img.dataset.id = c.id; img.alt = c.name;
+      const el = document.createElement("div"); el.className = "cam"; el.dataset.id = c.id;
+      const img = document.createElement("img"); img.alt = c.name;
+      const off = document.createElement("div"); off.className = "off"; off.textContent = "Камера не отвечает…";
       const t = document.createElement("div"); t.textContent = c.name;
       if (c.table) { const s = document.createElement("small"); s.textContent = " · " + c.table; t.append(s); }
-      el.append(img, t); el.onclick = () => openBig(c); $("grid").append(el);
+      el.append(img, off, t); el.onclick = () => openBig(c); $("grid").append(el);
     }
     startGrid();
   })
-  .catch(() => { $("msg").textContent = "Нет связи с компьютером клуба. Он включён?"; });
+  .catch(() => { $("msg").textContent = "Нет связи с компьютером клуба. Он включён, программа открыта?"; });
 </script></body></html>
 """

@@ -7,7 +7,9 @@ import re
 import cv2
 
 # TCP is slower than UDP but doesn't smear the picture on a busy Wi-Fi.
-os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+# nobuffer/low_delay: the picture is shown as it comes, not after a buffer
+# («📺 Онлайн» must not lag behind).
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay")
 
 log = logging.getLogger("velora_vision.camera")
 

@@ -45,16 +45,22 @@ class FakeFeed:
         self.url = url
         self.seq = 0
         self.touched = 0
+        self.frozen = False   # the camera sends nothing new
+        self.failing = False
+        self.asked = []
 
     def touch(self):
         self.touched += 1
 
     def wait_new(self, after, timeout):
         time.sleep(0.01)
+        if self.frozen or self.failing:
+            return False
         self.seq = after + 1
         return True
 
-    def jpeg(self, width):
+    def jpeg(self, width, quality=None):
+        self.asked.append((width, quality))
         return self.seq, b"\xff\xd8" + str(width).encode() + b"\xff\xd9"
 
 
@@ -240,3 +246,26 @@ def test_the_build_bundles_the_same_cloudflared_version():
     if not wf.exists():
         pytest.skip("not in the repository")
     assert f"/download/{lv.CLOUDFLARED_VERSION}/cloudflared-windows-amd64.exe" in wf.read_text(encoding="utf-8")
+
+
+def test_the_page_gets_the_next_picture_with_its_number(server):
+    key = json.loads(get(server, "/auth", signed().encode()).read())["key"]
+    r = get(server, f"/jpeg/a1?k={key}&w=960&q=72&after=41")
+    assert r.status == 200 and r.headers["X-Seq"] == "42" and r.read() == b"\xff\xd8960\xff\xd9"
+    feed = server.feeds_made[0]
+    assert feed.asked[-1] == (960, 72)
+    feed.frozen = True                         # nothing newer within the wait: "ask again"
+    assert get(server, f"/jpeg/a1?k={key}&after=42").status == 204
+    feed.failing = True                        # the camera is silent
+    with pytest.raises(urllib.error.HTTPError) as e:
+        get(server, f"/jpeg/a1?k={key}&after=42")
+    assert e.value.code == 503
+    feed.failing = feed.frozen = False
+    get(server, f"/jpeg/a1?k={key}&q=5").read()     # the quality is kept within limits
+    assert feed.asked[-1][1] == 35
+
+
+def test_the_page_has_zoom_and_never_queues_pictures(server):
+    page = get(server, "/").read().decode()
+    for word in ("pointermove", "zoomAt", "setHD", "after=", "disableVerticalSwipes", "requestFullscreen"):
+        assert word in page
